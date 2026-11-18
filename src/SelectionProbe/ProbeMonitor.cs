@@ -13,6 +13,7 @@ internal sealed class ProbeMonitor(bool fixtures, bool exerciseTimeout, OverlayH
     private readonly Stopwatch clock = Stopwatch.StartNew();
     private WindowIdentity foreground;
     private bool isCodex;
+    private bool annotationFocused;
     private ProbeWorker? worker;
     private bool eventsAttempted;
     private bool eventsUnavailable;
@@ -56,6 +57,24 @@ internal sealed class ProbeMonitor(bool fixtures, bool exerciseTimeout, OverlayH
     private void Tick()
     {
         WindowIdentity current = NativeWindows.Foreground();
+        if (overlay is not null && overlay.IsAnnotationWindow(current.Handle))
+        {
+            if (!annotationFocused)
+            {
+                annotationFocused = true;
+                overlay.Publish(null, "annotation_focused");
+            }
+            if (isCodex && !foreground.IsEmpty)
+                CheckWindowAndMouse(overlay);
+            return;
+        }
+
+        if (annotationFocused)
+        {
+            annotationFocused = false;
+            nextSample = clock.Elapsed;
+        }
+
         if (current != foreground)
         {
             ResetWorker("not_foreground");
@@ -65,6 +84,11 @@ internal sealed class ProbeMonitor(bool fixtures, bool exerciseTimeout, OverlayH
             selectingWithMouse = false;
             eventsUnavailable = false;
             nextSample = clock.Elapsed;
+            if (isCodex && overlay is not null)
+            {
+                windowBounds = NativeWindows.WindowBounds(foreground.Handle);
+                overlay.NotifyOwnerGeometry(foreground, windowBounds);
+            }
             Write(isCodex
                 ? $"foreground_window=desktop hwnd=0x{foreground.Handle:X} pid={foreground.ProcessId}"
                 : "foreground_window=other selection_valid=false reason=not_foreground");
@@ -129,11 +153,13 @@ internal sealed class ProbeMonitor(bool fixtures, bool exerciseTimeout, OverlayH
     private void CheckWindowAndMouse(OverlayHost overlay)
     {
         ScreenRectangle bounds = NativeWindows.WindowBounds(foreground.Handle);
-        bool dragging = NativeWindows.LeftButtonDown() && !overlay.PointerOverButton;
+        bool dragging = NativeWindows.LeftButtonDown() && !overlay.PointerOverButton && !overlay.PointerOverAnnotation;
         if (bounds == windowBounds && dragging == selectingWithMouse)
             return;
 
         selectionGeneration++;
+        if (bounds != windowBounds && bounds.IsValid)
+            overlay.NotifyOwnerGeometry(foreground, bounds);
         if (dragging || bounds != windowBounds)
             overlay.Publish(null, dragging ? "pointer_selection" : "window_moved");
         windowBounds = bounds;
@@ -149,7 +175,8 @@ internal sealed class ProbeMonitor(bool fixtures, bool exerciseTimeout, OverlayH
         try
         {
             WorkerReply reply = completed.GetAwaiter().GetResult();
-            if (NativeWindows.Foreground() != foreground)
+            WindowIdentity current = NativeWindows.Foreground();
+            if (current != foreground && overlay?.IsAnnotationWindow(current.Handle) != true)
                 return;
             if (operation == Operation.Subscribe)
             {
@@ -178,7 +205,8 @@ internal sealed class ProbeMonitor(bool fixtures, bool exerciseTimeout, OverlayH
     {
         ScreenRectangle[] rectangles = sample.Ranges.SelectMany(range => range.Rectangles).ToArray();
         WindowGeometry geometry = NativeWindows.Geometry(foreground, rectangles);
-        if (NativeWindows.Foreground() != foreground)
+        WindowIdentity current = NativeWindows.Foreground();
+        if (current != foreground && overlay?.IsAnnotationWindow(current.Handle) != true)
             return;
 
         bool selectionChanged = lastSample is null || sample.State != lastSample.State || sample.Mode != lastSample.Mode
@@ -197,8 +225,13 @@ internal sealed class ProbeMonitor(bool fixtures, bool exerciseTimeout, OverlayH
             : sample.State == SelectionSample.Selected ? $"role_{role}" : sample.State;
         if (overlay is not null)
         {
-            overlay.Publish(valid ? new OverlaySelection(foreground, geometry.Bounds, sample.Viewport, rectangles) : null,
-                reason);
+            string selectedText = valid ? string.Join("\n", sample.Ranges.Select(r => r.Text)) : "";
+            overlay.Publish(
+                valid && !annotationFocused
+                    ? new OverlaySelection(foreground, geometry.Bounds, sample.Viewport, rectangles, selectedText)
+                    : null,
+                annotationFocused ? "annotation_focused" : reason);
+            overlay.NotifySelectionSample(foreground, geometry.Bounds, sample);
             if (valid && exerciseTimeout && !stallExercised)
                 stallPending = true;
         }

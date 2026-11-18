@@ -8,8 +8,25 @@ namespace ContextNotes.SelectionProbe;
 /// <summary>Metadata-only diagnostics. Callers never pass selected text, tokens or cookies.</summary>
 internal static class Diagnostics
 {
-    public static string LogDirectory => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ContextNotesNative", "logs");
+    public static string LogDirectory => ResolveLogDirectory();
+
+    private static string ResolveLogDirectory()
+    {
+        string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        if (!string.IsNullOrWhiteSpace(localAppData))
+        {
+            string candidate = Path.Combine(localAppData, "ContextNotesNative", "logs");
+            try
+            {
+                Directory.CreateDirectory(candidate);
+                return candidate;
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            {
+            }
+        }
+        return Path.Combine(Path.GetTempPath(), "ContextNotesNative", "logs");
+    }
 
     public static string ProcessSummary()
     {

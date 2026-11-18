@@ -34,6 +34,13 @@ dotnet publish $project -c Release --no-self-contained -p:NuGetAudit=false -o $b
 if ($LASTEXITCODE -ne 0) { throw 'Publishing the helper failed.' }
 Get-ChildItem -LiteralPath $bin -Filter *.pdb | Remove-Item -Force
 
+$manifest = Get-Content -LiteralPath (Join-Path $pluginRoot '.codex-plugin\plugin.json') -Raw | ConvertFrom-Json
+$profileRoot = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE '.codex' }
+$cachedBin = Join-Path $profileRoot ("plugins\cache\context-notes-native\context-notes\" + $manifest.version + "\bin")
+if (Test-Path -LiteralPath $cachedBin) {
+    Copy-Item -Path (Join-Path $bin '*') -Destination $cachedBin -Force
+}
+
 # 3. Register the local marketplace through the documented Codex CLI.
 if (-not $SkipMarketplace) {
     $codex = (Get-Command codex -ErrorAction SilentlyContinue).Source

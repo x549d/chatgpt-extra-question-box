@@ -6,6 +6,7 @@ namespace ContextNotes.SelectionProbe;
 internal static class DesktopStartup
 {
     private static string StopName => Companion.SessionName + ".watch.stop";
+    internal static string RelaunchName => Companion.SessionName + ".watch.relaunch";
 
     public static int Watch()
     {
@@ -14,6 +15,7 @@ internal static class DesktopStartup
             return 0;
 
         using var stop = new EventWaitHandle(false, EventResetMode.ManualReset, StopName);
+        using var relaunch = new EventWaitHandle(false, EventResetMode.AutoReset, RelaunchName);
         using var log = new Diagnostics.RotatingLog(Path.Combine(Diagnostics.LogDirectory, "desktop-startup.log"));
         log.WriteLine($"desktop_watcher=running pid={Environment.ProcessId}");
         var gate = new DesktopStartupGate();
@@ -21,6 +23,12 @@ internal static class DesktopStartup
         bool verified = false;
         do
         {
+            if (relaunch.WaitOne(0))
+            {
+                int relaunchResult = Companion.LaunchFromDesktop();
+                log.WriteLine($"desktop_launch source=relaunch_signal launcher_exit={relaunchResult}");
+            }
+
             WindowIdentity foreground = NativeWindows.Foreground();
             if (foreground.ProcessId != foregroundPid)
             {
