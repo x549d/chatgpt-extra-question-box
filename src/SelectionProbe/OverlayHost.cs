@@ -39,9 +39,11 @@ internal sealed class OverlayHost : IDisposable
     private long lastDeferredSelectionId = -1;
     private string? activeTrackingAnnotationId;
     private int nextAnnotationNumber;
+    private readonly HistoryPersistence? history;
 
-    public OverlayHost(AnnotationService? service = null)
+    public OverlayHost(AnnotationService? service = null, HistoryPersistence? history = null)
     {
+        this.history = history;
         ownsService = service is null;
         annotationService = service ?? new AnnotationService(diagnosticLogger: Write);
         var ready = new TaskCompletionSource<Dispatcher>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -362,8 +364,9 @@ internal sealed class OverlayHost : IDisposable
             return existing;
         }
 
-        string id = $"ann-{++nextAnnotationNumber}";
+        string id = history is null ? $"ann-{++nextAnnotationNumber}" : $"ann-{Guid.NewGuid():N}";
         var item = new AnnotationItem(id, snapshot);
+        if (history is not null) item.Persist = history.Save;
         var popup = new AnnotationWindow(item, annotationService)
         {
             DiagnosticLogged = (_, message) => Write(message),
@@ -404,6 +407,7 @@ internal sealed class OverlayHost : IDisposable
         popup.Show();
         _ = popup.Place(placement.Bounds, activate: true);
         bool focusRequested = popup.FocusInput();
+        item.Persist?.Invoke(item, true);
 
         ScreenRectangle actualBounds = NativeWindows.WindowBounds(popup.Handle);
         Write(FormattableString.Invariant(
@@ -419,6 +423,7 @@ internal sealed class OverlayHost : IDisposable
 
     private void OnAnnotationClosed(AnnotationWindow popup)
     {
+        popup.Item.Persist?.Invoke(popup.Item, true);
         bool wasActive = NativeWindows.Foreground().Handle == popup.Handle || popup.IsActive;
         annotationService.NotifyAnnotationClosed(popup.Item);
         annotations.Remove(popup);
@@ -664,6 +669,7 @@ internal sealed class OverlayHost : IDisposable
         });
         if (ownsService)
             annotationService.Dispose();
+        history?.Flush();
         dispatcher.BeginInvokeShutdown(DispatcherPriority.Normal);
         thread.Join();
     }

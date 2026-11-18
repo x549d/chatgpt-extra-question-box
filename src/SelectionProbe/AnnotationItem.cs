@@ -104,6 +104,10 @@ internal sealed class AnnotationItem
 
     // Phase 4 AI session & multi-turn state (never stores plaintext tokens or emails)
     public string? ThreadId { get; set; }
+    public string? SuspendedThreadId { get; set; }
+    public bool RequiresThreadResume { get; set; }
+    public bool ThreadRecoveryRequired { get; set; }
+    public Action<AnnotationItem, bool>? Persist { get; set; }
     public long ThreadClientGeneration { get; set; }
     public bool ThreadAnchoredWithQuote { get; set; }
     public string? AccountScopeId { get; set; }
@@ -154,7 +158,7 @@ internal sealed class AnnotationItem
         {
             var msg = new AnnotationMessage
             {
-                MessageId = $"{AnnotationId}-m{Messages.Count + 1}",
+                MessageId = Guid.NewGuid().ToString("N"),
                 Role = "user",
                 Text = question,
                 State = AnnotationGenerationState.Completed,
@@ -166,13 +170,22 @@ internal sealed class AnnotationItem
         }
     }
 
+    public void RemoveRejectedTurn(AnnotationMessage assistant)
+    {
+        lock (sync)
+        {
+            int index = Messages.IndexOf(assistant);
+            if (index > 0) Messages.RemoveRange(index - 1, 2);
+        }
+    }
+
     public AnnotationMessage BeginAssistantMessage(string? turnId = null)
     {
         lock (sync)
         {
             var msg = new AnnotationMessage
             {
-                MessageId = $"{AnnotationId}-m{Messages.Count + 1}",
+                MessageId = Guid.NewGuid().ToString("N"),
                 Role = "assistant",
                 Text = "",
                 TurnId = turnId,

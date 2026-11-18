@@ -56,6 +56,12 @@ internal sealed class AnnotationService : IDisposable
         ArgumentNullException.ThrowIfNull(item);
         if (item.IsClosed || Volatile.Read(ref disposed) != 0)
             return AnnotationGenerationState.Cancelled;
+        if (item.ThreadRecoveryRequired)
+        {
+            item.StatusNotice = "原 Thread 不可用。请使用“新 Thread 恢复”，确认以引用和已完成对话建立新上下文。";
+            NotifyUi(item, onUiUpdate);
+            return item.GenerationState;
+        }
 
         string trimmedQuestion = question.Trim();
         if (string.IsNullOrWhiteSpace(trimmedQuestion))
@@ -88,6 +94,8 @@ internal sealed class AnnotationService : IDisposable
         session.AssistantMessage = assistantMsg;
         NotifyUi(item, session.UiCallback);
 
+        item.Persist?.Invoke(item, true);
+
         try
         {
             CodexAppServerClient activeClient = await EnsureClientAsync(cancellation).ConfigureAwait(false);
@@ -112,13 +120,21 @@ internal sealed class AnnotationService : IDisposable
             }
             else if (!string.Equals(item.AccountScopeId, account.ScopeFingerprint, StringComparison.Ordinal))
             {
+                item.SuspendedThreadId ??= item.ThreadId;
                 item.ThreadId = null;
-                item.ThreadAnchoredWithQuote = false;
+                // Reject the attempted question as well as the turn; keep the old account's history unchanged.
+                item.RemoveRejectedTurn(assistantMsg);
                 Log($"event=annotation_account_switched annotation_id={item.AnnotationId} old_scope={item.AccountScopeId} new_scope={account.ScopeFingerprint}");
                 return FailTurn(
                     session,
                     "检测到当前 Codex 登录账号已切换，为保护账号上下文隔离，旧账号旁注已停止继续追问。请重新划词创建新旁注。",
                     "account_switched");
+            }
+            if (item.SuspendedThreadId is { } suspended)
+            {
+                item.ThreadId = suspended;
+                item.SuspendedThreadId = null;
+                item.RequiresThreadResume = true;
             }
 
             // 2. Query model catalog once per client connection (non-fatal if model/list is unsupported).
@@ -140,6 +156,21 @@ internal sealed class AnnotationService : IDisposable
 
             // 3. Ensure this annotation has its own dedicated App Server Thread on the current connection.
             bool needsNewThread = string.IsNullOrWhiteSpace(item.ThreadId) || item.ThreadClientGeneration != gen;
+            if (item.RequiresThreadResume && item.ThreadId is { } oldThread)
+            {
+                try
+                {
+                    await activeClient.ResumeThreadAsync(oldThread, cancellation).ConfigureAwait(false);
+                    item.ThreadClientGeneration = gen;
+                    item.RequiresThreadResume = false;
+                    needsNewThread = false;
+                }
+                catch (AppServerRpcException)
+                {
+                    item.ThreadRecoveryRequired = true;
+                    return FailTurn(session, "原 Thread 不可用。历史已保留，请确认后使用“新 Thread 恢复”。", "thread_resume_failed");
+                }
+            }
             if (needsNewThread)
             {
                 AppServerThreadInfo threadInfo = await activeClient.StartThreadAsync(
@@ -492,6 +523,7 @@ internal sealed class AnnotationService : IDisposable
 
     private static void NotifyUi(AnnotationItem item, Action? callback)
     {
+        item.Persist?.Invoke(item, !item.IsBusy);
         if (item.IsClosed || callback is null)
             return;
         try
@@ -522,6 +554,7 @@ internal sealed class AnnotationService : IDisposable
 
         foreach (KeyValuePair<string, ActiveTurnSession> pair in activeByAnnotation)
         {
+            CompleteAsCancelled(pair.Value, serverConfirmed: false);
             pair.Value.DetachUi();
             pair.Value.MarkCancelled();
         }

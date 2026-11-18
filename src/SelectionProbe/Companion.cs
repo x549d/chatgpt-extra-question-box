@@ -51,7 +51,8 @@ internal static class Companion
             SelectionTrace.Empty("waiting_for_foreground").Write("companion_started", false);
             try
             {
-                using var overlay = new OverlayHost();
+                using var history = new HistoryPersistence(new HistoryDatabase(HistoryDatabase.DefaultPath));
+                using var overlay = new OverlayHost(history: history);
                 while (!cancellation.IsCancellationRequested)
                 {
                     try

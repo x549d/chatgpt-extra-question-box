@@ -584,7 +584,7 @@ internal sealed class CodexAppServerClient : IDisposable
         var parameters = new JsonObject
         {
             ["cwd"] = cwd,
-            ["ephemeral"] = true,
+            ["ephemeral"] = false,
             ["approvalPolicy"] = "never",
             ["sandbox"] = "read-only",
             ["developerInstructions"] = developerInstructions ?? DefaultDeveloperInstructions
@@ -606,6 +606,20 @@ internal sealed class CodexAppServerClient : IDisposable
 
         Log($"event=app_server_thread_started model={resolvedModel} ephemeral={ephemeral}");
         return new AppServerThreadInfo(threadId, resolvedModel, provider, ephemeral);
+    }
+
+    public async Task ResumeThreadAsync(string threadId, CancellationToken cancellation = default)
+    {
+        var response = await SendRequestAsync("thread/resume", new JsonObject
+        {
+            ["threadId"] = threadId,
+            ["cwd"] = StdioAppServerTransport.EnsureEmptyWorkspaceDirectory(),
+            ["approvalPolicy"] = "never",
+            ["sandbox"] = "read-only",
+            ["developerInstructions"] = DefaultDeveloperInstructions
+        }, cancellation: cancellation).ConfigureAwait(false);
+        if (response.GetProperty("thread").GetProperty("id").GetString() != threadId)
+            throw new InvalidDataException("Server resumed a different thread.");
     }
 
     public async Task<AppServerTurnInfo> StartTurnAsync(

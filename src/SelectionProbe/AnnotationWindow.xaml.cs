@@ -139,6 +139,7 @@ internal partial class AnnotationWindow : Window
         if (Item.ExpandedState == expanded)
             return;
         Item.ExpandedState = expanded;
+        Item.Persist?.Invoke(Item, false);
         ApplyExpandedState(expanded);
         UpdateLayout();
         DiagnosticLogged?.Invoke(this,
@@ -153,6 +154,7 @@ internal partial class AnnotationWindow : Window
         if (Item.QuoteExpandedState == expanded)
             return;
         Item.QuoteExpandedState = expanded;
+        Item.Persist?.Invoke(Item, false);
         ApplyQuoteState(expanded);
         UpdateLayout();
         DiagnosticLogged?.Invoke(this,
@@ -360,6 +362,7 @@ internal partial class AnnotationWindow : Window
     private void OnInputTextChanged(object sender, TextChangedEventArgs e)
     {
         Item.InputDraft = InputBox.Text;
+        Item.Persist?.Invoke(Item, false);
         UpdatePlaceholderText();
     }
 
@@ -463,6 +466,7 @@ internal partial class AnnotationWindow : Window
             ? NativeWindows.WindowBounds(Item.OwnerWindow.Handle)
             : Item.LastOwnerBounds;
         Item.RecordManualMove(clamped, ownerBounds);
+        Item.Persist?.Invoke(Item, false);
         DiagnosticLogged?.Invoke(this, FormattableString.Invariant(
             $"position_updated annotation_id={Item.AnnotationId} reason=user_drag px=[{clamped.X:0},{clamped.Y:0},{clamped.Width:0},{clamped.Height:0}]"));
     }
@@ -477,6 +481,7 @@ internal partial class AnnotationWindow : Window
         Item.IsClosed = true;
         Service?.NotifyAnnotationClosed(Item);
         InputBox.TextChanged -= OnInputTextChanged;
+        Item.Persist?.Invoke(Item, true);
         InputBox.KeyDown -= OnInputKeyDown;
         InputBox.GotKeyboardFocus -= OnInputGotKeyboardFocus;
         InputBox.LostKeyboardFocus -= OnInputLostKeyboardFocus;
