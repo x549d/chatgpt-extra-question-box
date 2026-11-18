@@ -1,8 +1,8 @@
 # Phase 2R · Codex Desktop Chat 验收
 
-验收日期为 2026-11-18，时间均为 UTC+08:00。本轮从 `ad39503`（`main`）开始，最终测试版本为包含输入框边界修复的本提交。角色修复前的历史基线为 `329e7d5`。
+验收日期为 2026-11-18，时间均为 UTC+08:00。本轮从 `ad39503`（`main`）开始，最终测试版本为包含输入框边界修复的 `56b0ecc`。角色修复前的历史基线为 `329e7d5`。
 
-**Phase 2R 为 PARTIAL。** 实机确认 `ad39503` 的真实助手选区触发「提问」，日志记录了点击时 Codex 保持前台。随后修复了输入框边界，真实窗口的只读几何复验和完整自测已通过。最终版仍需确认冷启动、物理点击和其余实机用例。
+**Phase 2R 为 PARTIAL。** 最终版已在真实 Chat 确认助手选区、按钮显示与定位、点击处理与前台保留、选区离开视口后隐藏和用户消息排除。新版冷启动、输入框选区及物理鼠标来源仍待确认。
 
 ## 环境
 
@@ -31,23 +31,24 @@
 | Chat 模式 | PASS | 真实前台窗口的 UIA 提供程序与插件均报告 `mode_detection=chat` 或 `mode=chat`。定位规则同时要求会话正文、滚动区域和桌面主内容层级。 |
 | 修复版冷启动自动拉起 | PARTIAL | 历史构建曾在完全退出后由已有会话的 `SessionStart:resume` 启动后台。修复版确认 Hook 配置一致，部署后的后台由本轮手动启动用于验证。打开已有 Chat 后的新版冷启动执行尚待复测。 |
 | Hooks 设置页 | NOT TESTED | 插件本机配置已启用且存在信任记录。新版运行时是否仍认可该记录，待桌面设置页或新版冷启动日志核对。 |
-| 助手回答识别 | PARTIAL | `ad39503` 对真实助手选区两次返回 `selection_role=assistant reason=eligible`。最终版的角色规则相同，待复验部署后的真实选区。 |
-| 用户消息排除 | PARTIAL | 修复版的真实提供程序只读取样有 2 个可见文本范围判为 `User`，自测覆盖了交错角色标题。尚待物理拖选复测入口隐藏。 |
+| 助手回答识别 | PASS | 最终版在真实 Chat 返回 `selection_role=assistant`、`selection_valid=True`、`reason=eligible`。 |
+| 用户消息排除 | PASS | 最终版的真实选区返回 `selection_role=user`、`selection_valid=False`、`reason=role_user`，浮层报 `overlay_hidden_reason=role_user`。 |
 | 输入框排除 | PARTIAL | 历史构建的实际输入框选区报 `role_composer`，随后浮层报 `overlay_hidden_reason=role_composer`。修复版当前只观察到插入光标和 `selection_empty`，拖选待复测。 |
 | 侧栏排除 | NOT TESTED | 保留导航区和侧栏的结构判断，未独立物理拖选复验。 |
-| 提问按钮显示 | PARTIAL | `ad39503` 的真实窗口两次记录 `overlay_visible=true`。最终版的真实拖选待复验。 |
-| 按钮位置与遮挡 | PARTIAL | `ad39503` 的实机样本在高亮右侧 11 像素，位于正文视口，无高亮或输入框重叠。另发现离屏编辑器干扰输入框边界计算，最终版已修复并在同一客户端通过只读边界比对。最终版借助可见按钮作目视复验待完成。 |
-| 点击处理及前台保留 | PARTIAL | `ad39503` 的实际浮层多次记录 `annotation_entry_clicked codex_foreground=true`。程序未调用点击自动化，最终版点击待复验。 |
-| 真实物理鼠标 | NOT TESTED | 点击日志记录事件与前台状态，事件本身不提供输入来源。等待用户确认物理鼠标点击。 |
+| 提问按钮显示 | PASS | 最终版的真实助手选区后记录 `overlay_visible=true change=shown`，并给出实际 WPF 窗口坐标。 |
+| 按钮位置与遮挡 | PASS | 最终版的高亮右边缘为 `1419`，按钮左边缘为 `1430`，间距 11 个物理像素。按钮顶部与高亮对齐，实际矩形完全处于正文裁剪区内，并避开输入框。窗口移动和多区域场景另列验收。 |
+| 点击处理及前台保留 | PASS | 最终版的真实浮层记录 `annotation_entry_clicked codex_foreground=true`，点击处理只记录状态。 |
+| 真实物理鼠标 | NOT TESTED | 15:09:57 的点击日志证实事件到达，事件本身不记录输入来源。等待用户确认物理鼠标点击。 |
 | 后台持续运行 | PASS | Hook 启动的同一后台从 14:30:36 运行到 14:41:46 主动停止以更新程序，超过 185 秒，期间只读诊断独立运行。 |
 | 取消选择和失焦 | PARTIAL | `ad39503` 的真实可见按钮在选区清空时消失。最终版真实日志观察到失焦与隐藏请求，从可见按钮状态触发的最终版失焦待复测。 |
 | 恢复前台 | PARTIAL | 最终版识别到重新进前台的桌面窗口和 Chat 模式。有效选区和可见入口恢复待复测。 |
-| 滚动与选区离屏 | NOT TESTED | 真实选区离屏后的按钮行为待复测。 |
+| 选区离屏 | PASS | 点击后同一真实选区仍被识别为 `assistant`，其可见矩形变为 0，窗口尺寸和选区事件计数未变。入口记录 `overlay_visible=false overlay_hidden_reason=selection_outside_viewport`。 |
+| 滚动时跟随 | PARTIAL | 实机已观察选区离开视口后隐藏，选区仍在视口时的连续滚动跟随待复测。 |
 | 移动窗口与最大化／还原 | NOT TESTED | 真实窗口几何变化后的按钮重定位待复测。 |
 | 快速改选 | NOT TESTED | 真实 Chat 中 A → B → C 待复测。 |
 | 多行、缩进与代码块 | PARTIAL | 保留 Phase 1 的 UIA 选区直接读取。中文、英文、标点、空格和换行逐字自测通过，修复版实际多行代码拖选待复测。 |
 | 查询超时和恢复 | PARTIAL | .NET 自测测得隔离工作进程约 2 秒超时，随后成功重启。未同时在真实 Chat 操作滚动。 |
-| 150% 单屏 DPI | PARTIAL | `ad39503` 的实际选区和浮层矩形距文本右边界 11 像素，最终版已在同一 DPI 下核对正文边界。最终版浮层的目视对齐待复测。 |
+| 150% 单屏 DPI | PASS | 最终版在 144 DPI 记录的 UIA 选区、WPF 浮层及正文裁剪区均为物理像素，水平间距 11 像素，与 7 DIP 转为物理像素并向上取整的结果一致。 |
 | 多显示器与混合 DPI | NOT TESTED | 当前环境只有一台显示器，跨屏自测只覆盖几何算法。 |
 
 ## 根因与修复
@@ -78,6 +79,13 @@
 14:59:44.288  annotation_entry_clicked codex_foreground=true
 15:03:47.551  companion started process pid=28236
 15:03:47.859  mode_detection=chat selection_detected=False reason=selection_empty dpi=144 monitor_count=1
+15:09:56.130  mode_detection=chat selection_detected=True selection_role=assistant selection_valid=True reason=eligible
+15:09:56.132  selection_rectangle=[1271,902,148,29]
+15:09:56.645  overlay_visible=true change=shown side=right px=[1430,902,99,45] viewport=[1041,296,1229,791] dpi=144
+15:09:57.333  annotation_entry_clicked codex_foreground=true
+15:09:59.597  overlay_visible=false overlay_hidden_reason=selection_outside_viewport
+15:10:07.793  mode_detection=chat selection_detected=True selection_role=user selection_valid=False reason=role_user
+15:10:07.793  overlay_visible=false overlay_hidden_reason=role_user
 ```
 
 此前的实机记录保留如下。
