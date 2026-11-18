@@ -10,7 +10,8 @@ internal sealed record OverlaySelection(
     ScreenRectangle WindowBounds,
     ScreenRectangle Viewport,
     ScreenRectangle[] Rectangles,
-    string SelectedText = "");
+    string SelectedText = "",
+    SelectionTrace? Trace = null);
 
 internal sealed class OverlayHost : IDisposable
 {
@@ -22,6 +23,7 @@ internal sealed class OverlayHost : IDisposable
     private OverlaySelection? latest;
     private SelectionSnapshot? boundSnapshot;
     private string hideReason = "not_foreground";
+    private SelectionTrace latestTrace = SelectionTrace.Empty("not_foreground");
     private long generation;
     private bool queued;
     private bool disposed;
@@ -31,6 +33,8 @@ internal sealed class OverlayHost : IDisposable
     private WindowIdentity owner;
     private ButtonPlacement? lastPlacement;
     private string? lastHiddenReason;
+    private long lastHiddenSelectionId;
+    private long lastDeferredSelectionId = -1;
     private string? activeTrackingAnnotationId;
     private int nextAnnotationNumber;
 
@@ -44,6 +48,10 @@ internal sealed class OverlayHost : IDisposable
                 // A rendering fault must hide the entry, never take down the companion.
                 args.Handled = true;
                 Write($"overlay fault error_type={args.Exception.GetType().Name}");
+                SelectionTrace failed;
+                lock (updates)
+                    failed = latestTrace with { Reason = "dispatcher_fault" };
+                failed.Write("overlay_creation_failed", false, args.Exception.GetType());
                 try
                 {
                     window?.Hide();
@@ -95,7 +103,7 @@ internal sealed class OverlayHost : IDisposable
     internal void UpdateAnnotationsForOwnerForTest(WindowIdentity codexWindow, ScreenRectangle windowBounds) =>
         UpdateAnnotationsForOwner(codexWindow, windowBounds);
 
-    public void Publish(OverlaySelection? selection, string reason = "selection_empty")
+    public void Publish(OverlaySelection? selection, string reason = "selection_empty", SelectionTrace? trace = null)
     {
         lock (updates)
         {
@@ -103,6 +111,7 @@ internal sealed class OverlayHost : IDisposable
                 return;
             latest = selection;
             hideReason = reason;
+            latestTrace = (trace ?? selection?.Trace ?? SelectionTrace.Empty(reason)) with { Reason = reason };
             generation++;
             if (!queued)
             {
@@ -147,34 +156,41 @@ internal sealed class OverlayHost : IDisposable
     {
         OverlaySelection? selection;
         string reason;
+        SelectionTrace trace;
         long expected;
         lock (updates)
         {
             queued = false;
             selection = latest;
             reason = hideReason;
+            trace = latestTrace;
             expected = generation;
         }
 
         if (selection is null)
         {
             // Do not hide the entry button mid-click while the user is pressing it.
-            if (reason is not ("not_foreground" or "annotation_opened")
+            if (reason is not ("not_foreground" or "no_foreground_window" or "annotation_opened")
                 && window is { IsVisible: true }
                 && boundSnapshot is not null
                 && PointerOverButton
                 && NativeWindows.LeftButtonDown())
             {
+                if (lastDeferredSelectionId != trace.Id)
+                {
+                    (trace with { Reason = "button_press_in_progress" }).Write("overlay_hide_deferred", true);
+                    lastDeferredSelectionId = trace.Id;
+                }
                 return;
             }
-            Hide(reason);
-            if (reason == "not_foreground")
+            Hide(reason, trace);
+            if (reason is "not_foreground" or "no_foreground_window")
                 SuspendAnnotationsByForeground();
             return;
         }
-        if (!IsCurrent(selection, expected))
+        if (PublishBlocker(selection, expected) is { } blocker)
         {
-            Hide("stale_selection");
+            Hide(blocker, trace);
             return;
         }
 
@@ -183,7 +199,7 @@ internal sealed class OverlayHost : IDisposable
             NativeWindows.Displays());
         if (display is not { } screen)
         {
-            Hide("selection_outside_viewport");
+            Hide("selection_outside_viewport", trace);
             return;
         }
 
@@ -191,15 +207,19 @@ internal sealed class OverlayHost : IDisposable
         {
             if (window is null)
             {
-                window = new QuestionOverlay { Clicked = OnClick };
-                Volatile.Write(ref handle, window.Handle);
+                trace.Write("overlay_create_started", false);
+                var created = new QuestionOverlay { Clicked = OnClick };
+                nint createdHandle = created.Handle;
+                window = created;
+                Volatile.Write(ref handle, createdHandle);
+                trace.Write("overlay_created", false);
             }
             if (NativeWindows.WindowDisplay(window.Handle) != screen.Handle)
             {
-                Hide("display_change");
+                Hide("display_change", trace);
                 if (!window.StageOn(screen))
                 {
-                    Hide("overlay_position_invalid");
+                    Hide("display_stage_failed", trace);
                     return;
                 }
             }
@@ -214,60 +234,83 @@ internal sealed class OverlayHost : IDisposable
                 : null;
             if (placement is not { } target || anchor is not { } validAnchor)
             {
-                Hide(anchor is null ? "invalid_rectangle" : "overlay_position_invalid");
+                Hide(anchor is null ? "invalid_rectangle" : "overlay_position_invalid", trace);
                 return;
             }
-            if (!IsCurrent(selection, expected))
+            if (PublishBlocker(selection, expected) is { } lateBlocker)
             {
-                Hide("stale_selection");
+                Hide(lateBlocker, trace);
                 return;
             }
 
             bool showing = !window.IsVisible;
-            if ((showing || target != lastPlacement) && !window.Place(target.Bounds))
+            bool placementChanged = target != lastPlacement;
+            if ((showing || placementChanged) && !window.Place(target.Bounds))
             {
-                Hide("overlay_position_invalid");
+                Hide("overlay_position_failed", trace);
                 return;
             }
             owner = selection.Window;
             if (!string.IsNullOrWhiteSpace(selection.SelectedText))
+            {
+                bool newSnapshot = boundSnapshot?.Trace?.Id != trace.Id || showing || placementChanged;
                 boundSnapshot = SelectionSnapshot.FromSelection(selection, validAnchor);
+                if (newSnapshot)
+                    trace.Write("selection_snapshot_bound", !showing);
+            }
             if (showing)
             {
                 window.Show();
                 if (NativeWindows.WindowBounds(window.Handle) != target.Bounds && !window.Place(target.Bounds))
                 {
-                    Hide("overlay_position_invalid");
+                    Hide("overlay_position_failed", trace);
                     return;
                 }
             }
-            if (showing || target != lastPlacement)
+            if (!NativeWindows.IsWindowVisible(window.Handle))
+            {
+                Hide("native_window_not_visible", trace);
+                return;
+            }
+            if (showing || placementChanged)
             {
                 var bounds = NativeWindows.WindowBounds(window.Handle);
+                if (!bounds.IsValid || bounds.Intersect(work) != bounds || bounds.Intersects(validAnchor))
+                {
+                    Hide("native_window_bounds_invalid", trace);
+                    return;
+                }
+                trace.Write(showing ? "overlay_shown" : "overlay_moved", true);
                 Write(FormattableString.Invariant(
                     $"overlay_visible=true change={(showing ? "shown" : "moved")} side={target.Side} px=[{bounds.X},{bounds.Y},{bounds.Width},{bounds.Height}] viewport=[{viewport.X},{viewport.Y},{viewport.Width},{viewport.Height}] dpi={dpi.PixelsPerInchX:F0}"));
             }
             lastPlacement = target;
             lastHiddenReason = null;
+            lastDeferredSelectionId = -1;
         }
         catch (Exception error) when (error is Win32Exception or InvalidOperationException)
         {
-            Hide("overlay_position_invalid");
+            Hide("overlay_creation_or_render_fault", trace);
+            (trace with { Reason = "overlay_creation_or_render_fault" }).Write("overlay_creation_failed", false, error.GetType());
             Write($"overlay error={error.GetType().Name}");
         }
     }
 
-    private bool IsCurrent(OverlaySelection selection, long expected)
+    private string? PublishBlocker(OverlaySelection selection, long expected)
     {
         lock (updates)
         {
-            if (disposed || expected != generation)
-                return false;
+            if (disposed)
+                return "overlay_disposed";
+            if (expected != generation)
+                return "selection_generation_changed";
         }
         WindowIdentity currentForeground = NativeWindows.Foreground();
-        return (currentForeground == selection.Window || IsAnnotationWindow(currentForeground.Handle))
-            && NativeWindows.WindowBounds(selection.Window.Handle) == selection.WindowBounds
-            && (!NativeWindows.LeftButtonDown() || PointerOverButton || PointerOverAnnotation);
+        if (currentForeground != selection.Window && !IsAnnotationWindow(currentForeground.Handle))
+            return "foreground_changed";
+        if (NativeWindows.WindowBounds(selection.Window.Handle) != selection.WindowBounds)
+            return "window_moved";
+        return NativeWindows.LeftButtonDown() && !PointerOverButton && !PointerOverAnnotation ? "pointer_selection" : null;
     }
 
     private void OnClick()
@@ -277,12 +320,20 @@ internal sealed class OverlayHost : IDisposable
             || NativeWindows.IsCodex(currentForeground)
             || IsAnnotationWindow(currentForeground.Handle);
         if (!codexForeground || window is not { IsActive: false })
+        {
+            ((boundSnapshot?.Trace ?? SelectionTrace.Empty("selection_empty")) with
+            {
+                Reason = codexForeground ? "entry_activated" : "foreground_changed"
+            }).Write("overlay_click_ignored");
             return;
+        }
 
         SelectionSnapshot? snapshot = boundSnapshot;
         boundSnapshot = null;
+        SelectionTrace trace = snapshot?.Trace ?? SelectionTrace.Empty("snapshot_missing");
         Write($"annotation_entry_clicked codex_foreground=true has_snapshot={snapshot is not null} selected_text_length={snapshot?.SelectedText.Length ?? 0}");
-        Hide("annotation_opened");
+        trace.Write("overlay_clicked", true);
+        Hide("annotation_opened", trace);
         if (snapshot is not null)
             _ = OpenAnnotationFromSnapshot(snapshot);
     }
@@ -353,6 +404,12 @@ internal sealed class OverlayHost : IDisposable
         ScreenRectangle actualBounds = NativeWindows.WindowBounds(popup.Handle);
         Write(FormattableString.Invariant(
             $"annotation_created annotation_id={item.AnnotationId} side={placement.Side} selected_text_length={item.SelectedText.Length} px=[{actualBounds.X:0},{actualBounds.Y:0},{actualBounds.Width:0},{actualBounds.Height:0}] focus_requested={focusRequested} active_count={annotations.Count}"));
+        if (snapshot.Trace is { } trace)
+        {
+            bool quoteMatches = string.Equals(popup.QuoteControl.Text, snapshot.SelectedText, StringComparison.Ordinal);
+            Console.WriteLine(trace.Format("annotation_opened", false) +
+                $" annotation_visible={NativeWindows.IsWindowVisible(popup.Handle)} quote_exact={quoteMatches} focus_requested={focusRequested}");
+        }
         return popup;
     }
 
@@ -560,15 +617,20 @@ internal sealed class OverlayHost : IDisposable
         Volatile.Write(ref annotationHandles, handles);
     }
 
-    private void Hide(string reason)
+    private void Hide(string reason, SelectionTrace? metadata = null)
     {
         if (window is { IsVisible: true })
             window.Hide();
-        if (reason is "not_foreground" or "annotation_opened")
+        if (reason is "not_foreground" or "no_foreground_window" or "annotation_opened")
             boundSnapshot = null;
-        if (lastHiddenReason != reason)
+        SelectionTrace trace = (metadata ?? SelectionTrace.Empty(reason)) with { Reason = reason };
+        if (lastHiddenReason != reason || lastHiddenSelectionId != trace.Id)
+        {
             Write($"overlay_visible=false overlay_hidden_reason={reason}");
+            trace.Write("overlay_hidden", false);
+        }
         lastHiddenReason = reason;
+        lastHiddenSelectionId = trace.Id;
         lastPlacement = null;
     }
 

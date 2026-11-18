@@ -10,6 +10,9 @@ internal static class DesktopStartup
 
     public static int Watch()
     {
+        if (!Diagnostics.RequireInteractiveDesktop("watch_codex"))
+            return Diagnostics.NonInteractiveDesktopExitCode;
+
         using var instance = new Mutex(false, Companion.SessionName + ".watch.instance", out bool first);
         if (!first)
             return 0;
@@ -51,6 +54,8 @@ internal static class DesktopStartup
     {
         if (Status(stopRequested: false) == 0)
             return 0;
+        if (!Diagnostics.RequireInteractiveDesktop("launch_watcher"))
+            return Diagnostics.NonInteractiveDesktopExitCode;
         string executable = Environment.ProcessPath ?? throw new InvalidOperationException("Missing process path.");
         var start = new System.Diagnostics.ProcessStartInfo(executable)
         {

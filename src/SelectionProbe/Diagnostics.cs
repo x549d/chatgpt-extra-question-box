@@ -5,10 +5,48 @@ using System.Text;
 
 namespace ContextNotes.SelectionProbe;
 
+// IDs and lengths correlate production events without writing the selected text.
+internal readonly record struct SelectionTrace(string Mode, long Id, int TextLength, int RectangleCount, string Role, string Reason)
+{
+    public static SelectionTrace Empty(string reason) => new("unknown", 0, 0, 0, "none", reason);
+
+    public string Format(string eventName, bool? visible = null, Type? error = null) => FormattableString.Invariant(
+        $"event={eventName} pid={Environment.ProcessId} mode={Mode} selection_id={Id} text_length={TextLength} rectangle_count={RectangleCount} role={Role} eligibility_reason={Reason} overlay_visible={visible?.ToString().ToLowerInvariant() ?? "unknown"} error_type={error?.Name ?? "none"}");
+
+    public void Write(string eventName, bool? visible = null, Type? error = null) => Console.WriteLine(Format(eventName, visible, error));
+}
+
 /// <summary>Metadata-only diagnostics. Callers never pass selected text, tokens or cookies.</summary>
 internal static class Diagnostics
 {
+    public const int NonInteractiveDesktopExitCode = 4;
     public static string LogDirectory => ResolveLogDirectory();
+
+    public static bool RequireInteractiveDesktop(string operation)
+    {
+        DesktopContext desktop = NativeWindows.CurrentDesktop();
+        if (desktop.CanRunOverlay)
+            return true;
+
+        string record = SelectionTrace.Empty("non_interactive_desktop").Format("startup_rejected", false) +
+            $" operation={operation} interactive_station={desktop.InteractiveStation} default_desktop={desktop.DefaultDesktop} win32_error={desktop.Error}";
+        string fallback = Path.Combine(Path.GetTempPath(), "ContextNotesNative", "logs");
+        foreach (string directory in new[] { LogDirectory, fallback }.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            try
+            {
+                using var log = new RotatingLog(Path.Combine(directory, "startup-rejections.log"));
+                log.WriteLine(record);
+                return false;
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            {
+                // A restricted desktop may also lack access to the normal profile log.
+            }
+        }
+        Console.Error.WriteLine(record);
+        return false;
+    }
 
     private static string ResolveLogDirectory()
     {

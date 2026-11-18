@@ -10,8 +10,10 @@ internal sealed class ProbeMonitor(bool fixtures, bool exerciseTimeout, OverlayH
     internal static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(180);
     private static readonly TimeSpan LoopInterval = TimeSpan.FromMilliseconds(55);
+    private static long nextSelectionId;
     private readonly Stopwatch clock = Stopwatch.StartNew();
     private WindowIdentity foreground;
+    private bool foregroundObserved;
     private bool isCodex;
     private bool annotationFocused;
     private ProbeWorker? worker;
@@ -29,11 +31,13 @@ internal sealed class ProbeMonitor(bool fixtures, bool exerciseTimeout, OverlayH
     private bool selectingWithMouse;
     private long selectionGeneration;
     private long requestedGeneration;
+    private SelectionTrace lastTrace = SelectionTrace.Empty("waiting_for_foreground");
 
     public async Task RunAsync(TimeSpan duration, CancellationToken cancellation)
     {
         string limit = duration == Timeout.InfiniteTimeSpan ? "continuous" : $"{duration.TotalSeconds}";
         Write($"ready pid={Environment.ProcessId} seconds={limit} sample_ms={PollInterval.TotalMilliseconds} timeout_ms={RequestTimeout.TotalMilliseconds}");
+        lastTrace.Write("probe_monitor_started", false);
         try
         {
             while (!cancellation.IsCancellationRequested
@@ -62,7 +66,7 @@ internal sealed class ProbeMonitor(bool fixtures, bool exerciseTimeout, OverlayH
             if (!annotationFocused)
             {
                 annotationFocused = true;
-                overlay.Publish(null, "annotation_focused");
+                overlay.Publish(null, "annotation_focused", lastTrace);
             }
             if (isCodex && !foreground.IsEmpty)
                 CheckWindowAndMouse(overlay);
@@ -75,9 +79,10 @@ internal sealed class ProbeMonitor(bool fixtures, bool exerciseTimeout, OverlayH
             nextSample = clock.Elapsed;
         }
 
-        if (current != foreground)
+        if (!foregroundObserved || current != foreground)
         {
-            ResetWorker("not_foreground");
+            foregroundObserved = true;
+            ResetWorker(current.IsEmpty ? "no_foreground_window" : "not_foreground");
             foreground = current;
             isCodex = NativeWindows.IsCodex(foreground);
             windowBounds = default;
@@ -91,7 +96,9 @@ internal sealed class ProbeMonitor(bool fixtures, bool exerciseTimeout, OverlayH
             }
             Write(isCodex
                 ? $"foreground_window=desktop hwnd=0x{foreground.Handle:X} pid={foreground.ProcessId}"
+                : current.IsEmpty ? "foreground_window=none selection_valid=false reason=no_foreground_window"
                 : "foreground_window=other selection_valid=false reason=not_foreground");
+            (lastTrace with { Reason = isCodex ? "codex_foreground" : lastTrace.Reason }).Write("foreground_classified", false);
         }
         if (!isCodex)
             return;
@@ -106,6 +113,7 @@ internal sealed class ProbeMonitor(bool fixtures, bool exerciseTimeout, OverlayH
             else if (clock.Elapsed - requestedAt >= RequestTimeout)
             {
                 Write($"watchdog operation={operation} worker={worker!.Id} uia_latency_ms={(clock.Elapsed - requestedAt).TotalMilliseconds:F0} selection_valid=false");
+                (lastTrace with { Reason = "uia_timeout" }).Write("probe_request_failed", false, typeof(TimeoutException));
                 eventsUnavailable |= operation == Operation.Subscribe;
                 ResetWorker("uia_timeout");
                 nextSample = clock.Elapsed + PollInterval;
@@ -123,9 +131,10 @@ internal sealed class ProbeMonitor(bool fixtures, bool exerciseTimeout, OverlayH
                 worker = new ProbeWorker(foreground);
                 Write($"worker started pid={worker.Id}");
             }
-            catch (Win32Exception)
+            catch (Win32Exception error)
             {
                 Write("worker could not start; will retry");
+                (lastTrace with { Reason = "uia_worker_start_failed" }).Write("probe_request_failed", false, error.GetType());
                 nextSample = clock.Elapsed + RequestTimeout;
                 return;
             }
@@ -161,7 +170,7 @@ internal sealed class ProbeMonitor(bool fixtures, bool exerciseTimeout, OverlayH
         if (bounds != windowBounds && bounds.IsValid)
             overlay.NotifyOwnerGeometry(foreground, bounds);
         if (dragging || bounds != windowBounds)
-            overlay.Publish(null, dragging ? "pointer_selection" : "window_moved");
+            overlay.Publish(null, dragging ? "pointer_selection" : "window_moved", lastTrace);
         windowBounds = bounds;
         selectingWithMouse = dragging;
         nextSample = clock.Elapsed;
@@ -177,16 +186,22 @@ internal sealed class ProbeMonitor(bool fixtures, bool exerciseTimeout, OverlayH
             WorkerReply reply = completed.GetAwaiter().GetResult();
             WindowIdentity current = NativeWindows.Foreground();
             if (current != foreground && overlay?.IsAnnotationWindow(current.Handle) != true)
+            {
+                (lastTrace with { Reason = "foreground_changed" }).Write("selection_sample_dropped", false);
                 return;
+            }
             if (operation == Operation.Subscribe)
             {
                 eventsUnavailable = !reply.Subscribed;
                 Write($"selection events subscribed={reply.Subscribed}");
+                (lastTrace with { Reason = reply.Subscribed ? "subscribed" : "polling_only" }).Write("uia_subscription_ready");
                 return;
             }
             if (selectingWithMouse || requestedGeneration != selectionGeneration)
             {
                 nextSample = clock.Elapsed;
+                (lastTrace with { Reason = selectingWithMouse ? "pointer_selection" : "selection_generation_changed" })
+                    .Write("selection_sample_dropped", false);
                 return;
             }
 
@@ -196,6 +211,7 @@ internal sealed class ProbeMonitor(bool fixtures, bool exerciseTimeout, OverlayH
         catch (Exception error) when (error is IOException or JsonException or InvalidOperationException)
         {
             Write($"worker fault={error.GetType().Name}; selection invalidated");
+            (lastTrace with { Reason = "uia_worker_fault" }).Write("probe_request_failed", false, error.GetType());
             ResetWorker("uia_worker_fault");
             nextSample = clock.Elapsed + RequestTimeout;
         }
@@ -207,7 +223,10 @@ internal sealed class ProbeMonitor(bool fixtures, bool exerciseTimeout, OverlayH
         WindowGeometry geometry = NativeWindows.Geometry(foreground, rectangles);
         WindowIdentity current = NativeWindows.Foreground();
         if (current != foreground && overlay?.IsAnnotationWindow(current.Handle) != true)
+        {
+            (lastTrace with { Reason = "foreground_changed" }).Write("selection_sample_dropped", false);
             return;
+        }
 
         bool selectionChanged = lastSample is null || sample.State != lastSample.State || sample.Mode != lastSample.Mode
             || !sample.Ranges.Select(range => (range.Text, range.Region)).SequenceEqual(
@@ -215,22 +234,27 @@ internal sealed class ProbeMonitor(bool fixtures, bool exerciseTimeout, OverlayH
         bool geometryChanged = geometry != lastGeometry || sample.Viewport != lastSample?.Viewport
             || !rectangles.SequenceEqual(lastSample?.Ranges.SelectMany(range => range.Rectangles) ?? []);
         long eventDelta = sample.SelectionEvents - (lastSample?.SelectionEvents ?? 0);
-        bool assistant = sample.State == SelectionSample.Selected && sample.Ranges.Length > 0
-            && sample.Ranges.All(range => range.Region == SelectionRegion.Assistant
-                && !string.IsNullOrWhiteSpace(range.Text));
-        bool valid = assistant && rectangles.Any(OverlayPlacement.IsCandidate) && sample.Viewport.IsValid
-            && (overlay is null || geometry.Bounds == windowBounds);
         string role = sample.Ranges.Length > 0 ? sample.Ranges[0].Region.ToString().ToLowerInvariant() : "none";
-        string reason = valid ? "eligible" : assistant ? "invalid_rectangle"
-            : sample.State == SelectionSample.Selected ? $"role_{role}" : sample.State;
+        string reason = EvaluateSelection(sample, rectangles, overlay is null || geometry.Bounds == windowBounds);
+        bool valid = reason == "eligible";
+        long id = sample.Ranges.Length == 0 ? 0 : selectionChanged ? Interlocked.Increment(ref nextSelectionId) : lastTrace.Id;
+        var trace = new SelectionTrace(sample.Mode, id, sample.Ranges.Sum(range => range.Text.Length), rectangles.Length, role,
+            annotationFocused ? "annotation_focused" : reason);
+        bool changed = selectionChanged || geometryChanged || eventDelta != 0 || trace != lastTrace;
+        if (eventDelta > 0)
+            trace.Write("selection_event_received");
+        if (changed)
+        {
+            if (trace.TextLength > 0)
+                trace.Write("selection_text_read");
+            if (trace.Id != 0)
+                trace.Write("selection_role_classified");
+            trace.Write(trace.Reason == "eligible" ? "selection_eligible" : "selection_ineligible");
+        }
+        lastTrace = trace;
         if (overlay is not null)
         {
-            string selectedText = valid ? string.Join("\n", sample.Ranges.Select(r => r.Text)) : "";
-            overlay.Publish(
-                valid && !annotationFocused
-                    ? new OverlaySelection(foreground, geometry.Bounds, sample.Viewport, rectangles, selectedText)
-                    : null,
-                annotationFocused ? "annotation_focused" : reason);
+            overlay.Publish(CreateOverlaySelection(foreground, geometry.Bounds, sample, rectangles, trace), trace.Reason, trace);
             overlay.NotifySelectionSample(foreground, geometry.Bounds, sample);
             if (valid && exerciseTimeout && !stallExercised)
                 stallPending = true;
@@ -261,7 +285,7 @@ internal sealed class ProbeMonitor(bool fixtures, bool exerciseTimeout, OverlayH
     private void ResetWorker(string reason)
     {
         selectionGeneration++;
-        overlay?.Publish(null, reason);
+        overlay?.Publish(null, reason, lastTrace);
         worker?.Dispose();
         worker = null;
         if (request is { } abandoned)
@@ -274,7 +298,31 @@ internal sealed class ProbeMonitor(bool fixtures, bool exerciseTimeout, OverlayH
         stallPending = false;
         lastSample = null;
         lastGeometry = null;
+        lastTrace = SelectionTrace.Empty(reason);
     }
+
+    internal static string EvaluateSelection(SelectionSample sample, ScreenRectangle[] rectangles, bool boundsMatch)
+    {
+        if (sample.State != SelectionSample.Selected)
+            return sample.State;
+        if (sample.Mode != "chat")
+            return "chat_mode_unconfirmed";
+        foreach (SelectedRange range in sample.Ranges)
+            if (range.Region != SelectionRegion.Assistant)
+                return $"role_{range.Region.ToString().ToLowerInvariant()}";
+        if (sample.Ranges.Length == 0 || sample.Ranges.Any(range => string.IsNullOrWhiteSpace(range.Text)))
+            return "selection_empty_text";
+        if (!boundsMatch)
+            return "window_moved";
+        if (!sample.Viewport.IsValid)
+            return "invalid_viewport";
+        return rectangles.Any(OverlayPlacement.IsCandidate) ? "eligible" : "invalid_rectangle";
+    }
+
+    internal static OverlaySelection? CreateOverlaySelection(WindowIdentity owner, ScreenRectangle bounds, SelectionSample sample,
+        ScreenRectangle[] rectangles, SelectionTrace trace) => trace.Reason == "eligible"
+        ? new(owner, bounds, sample.Viewport, rectangles, string.Join("\n", sample.Ranges.Select(range => range.Text)), trace)
+        : null;
 
     private static string Coordinates(ScreenRectangle rectangle) =>
         FormattableString.Invariant($"[{rectangle.X},{rectangle.Y},{rectangle.Width},{rectangle.Height}]");

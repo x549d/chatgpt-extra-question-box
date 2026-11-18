@@ -1,5 +1,7 @@
 # Phase 3 · Codex Chat 选区旁注小框验收报告
 
+生产补充复验于 2026-11-18 完成。从交互桌面启动的最终 Companion 通过真实划选、浮层显示、物理点击、逐字引用、输入焦点和拼音输入。启动故障、部署校验和脱敏事件证据见 [生产 Companion 浮层故障修复](PRODUCTION-COMPANION-OVERLAY-REPAIR.md)。
+
 验收日期：2026-11-18（UTC+08:00）
 基线提交：`7f7b19a`（Phase 2R）
 目标环境：Windows 11 24H2（`26100.7623`）、Codex Desktop `26.1111.2228.0`（简体中文，Chat 模式）、单屏 144 DPI（150%）、.NET 10 + WPF。
@@ -12,7 +14,7 @@
 | --- | --- | --- |
 | **Phase 3A：点击提问打开小框** | **PASS** | `OverlayHost` 在「提问」按钮显示时绑定不可变的 `SelectionSnapshot`；点击「提问」后立即隐藏入口按钮并基于快照直接创建 `AnnotationWindow` 旁注小框，不重新查询可能已失效的 UIA 选区，不打开 Companion 主窗口或浏览器，也不需要二次确认。 |
 | **Phase 3B：原文自动引用** | **PASS** | `AnnotationItem.SelectedText` 完整保存 UIA 捕获的 UTF-16 原始字符串（保留换行 `\n`、缩进、连续空格、标点、中英文及多行代码），直接绑定到 `AnnotationWindow` 的可折叠引用区 `QuoteTextBlock`，不使用剪贴板，后续重新划词不会覆盖已有旁注的引用原文。 |
-| **Phase 3C：输入框自动聚焦与键盘/IME 交互** | **PARTIAL** | 按钮保持 `WS_EX_NOACTIVATE` 非激活交互；旁注小框 `AnnotationWindow` 使用 `WS_EX_TOOLWINDOW` 且**不设** `WS_EX_NOACTIVATE`，通过 Win32 Owner 绑定 Codex 主窗口句柄，并在打开时执行 `ActivateWindow` + `Activate()` + `InputBox.Focus()` + `Keyboard.Focus(InputBox)`。`InputBox` 显式开启 `InputMethod.IsInputMethodEnabled="True"`，`OnInputKeyDown` 检查 `e.ImeProcessedKey == Key.None` 以保护中文输入法拼音组合态，`Backspace`、`Ctrl+A`、`Ctrl+C`、`Ctrl+V` 严格限定在旁注输入框内。自动化 STA 测试与窗口样式验证全部通过；真实物理鼠标点击后的中文输入法候选框实机敲击待用户在 Codex 前台最终确认（标记见下表）。 |
+| **Phase 3C：输入框自动聚焦与键盘/IME 交互** | **PASS** | 保留 WPF 非激活入口和关联 Codex Owner 的可输入旁注。自动化验证窗口样式及 IME 属性，生产日志记录 `focus_acquired keyboard_focused=True`，用户确认物理点击后可直接使用拼音输入。 |
 | **Phase 3D：多旁注与状态隔离** | **PASS** | 支持同时打开多个独立旁注（`ann-1`、`ann-2`、`ann-3` 等），每个 `AnnotationItem` 独立维护 `annotation_id`、`conversation_id`（当前标记为 `"unconfirmed"`，不伪造会话 ID）、`selected_text`、`selection_rect`、`created_at`、`input_draft`、`window_position`、`expanded_state` 及 `quote_expanded_state`。关闭或折叠单个旁注不影响其他旁注；同一选区重复触发时复用已有旁注，不创建重复窗口。 |
 | **Phase 3E：位置管理、生命周期与资源清理** | **PASS** | `OverlayPlacement.PlaceAnnotation` 按「右侧 → 左侧 → 下方 → 上方」优先级定位，避开选区与底部 Composer 输入框，多旁注自动偏移/层叠避免重叠；支持标题栏拖动并按显示器 `WorkArea` 裁剪边界；Codex 窗口移动时按窗口位移同步更新旁注锚点与位置；页面滚动时跟随选区，选区滚出视口（`selection_outside_viewport`）时自动隐藏、滚回视口时恢复；Codex 失焦切换到外部程序时暂停隐藏旁注、回到 Codex 前台时自动恢复且不创建重复窗口；关闭时完整解除事件订阅并恢复 Codex 前台焦点。 |
 
@@ -64,9 +66,9 @@
 | --- | --- | --- |
 | `dotnet build -c Release` | **PASS** | `ChatGptContextNotesNative.sln`（含 `SelectionProbe` 与 `SelectionProbe.Tests`）0 警告、0 错误。 |
 | 项目自测（`--self-test`） | **PASS（78 / 78）** | 原有 55 项自测 + 新增 23 项 Phase 3 专项自测全部通过（覆盖快照绑定、四侧定位、多旁注防重叠、窗口扩展样式、IME 属性、逐字引用、引用折叠、草稿提交、多旁注状态隔离、窗口移动偏移、工作区裁剪、关闭与资源释放）。 |
-| `.NET` 单元测试（`dotnet test`） | **PASS（13 / 13）** | `tests/SelectionProbe.Tests` 通过 xUnit 发现 13 项测试，实际通过 13 项，失败 0 项。 |
+| `.NET` 单元测试（`dotnet test`） | **PASS（27 / 27）** | 保留原 13 项，新增 14 项生产入口、桌面环境和脱敏诊断回归。 |
 | 凭证与敏感内容扫描 | **PASS** | 扫描全部源码、测试、文档与 Git diff，未包含任何 Token、Cookie、API Key、真实聊天记录或未脱敏选区正文。 |
-| 本机插件与缓存部署 | **PASS** | 已发布至 `codex-plugin/plugins/context-notes/bin/` 并同步至 `%USERPROFILE%\.codex\plugins\cache\context-notes-native\context-notes\0.2.0\bin\`，后台 `companion_running`（PID `29816`，`integrity=8192`）与 `desktop_watcher_running`（PID `28868`）均已启动运行。 |
+| 本机插件与缓存部署 | **PASS** | 修复版同步至 `%USERPROFILE%\.codex\plugins\cache\context-notes-native\context-notes\0.2.0\bin\`。四个运行文件与 Release 一致。实测 Companion 为 `28388`，Watcher 为 `38868`。 |
 
 ---
 
@@ -85,7 +87,7 @@
 | 点击提问立即创建小框 | **PASS** | `OnClick` 消费 `boundSnapshot` 直接调用 `OpenAnnotationFromSnapshot` 创建并显示 `AnnotationWindow`，无二次确认或外部窗口。 |
 | 自动引用与选区逐字一致 | **PASS** | 直接使用 UIA `SelectionSnapshot.SelectedText` 填充，不经过剪贴板，后续改选不覆盖已有旁注。 |
 | 自动聚焦 | **PASS** | `AnnotationWindow` 去除 `WS_EX_NOACTIVATE`，打开时调用 `ActivateWindow` + `FocusInput()` 并记录 `focus_acquired`。 |
-| 中文输入法（拼音组合） | **NOT TESTED（待人工实机确认）** | 代码已启用 `InputMethod.IsInputMethodEnabled="True"` 且在 `OnInputKeyDown` 中过滤 `e.ImeProcessedKey != Key.None`；真实桌面拼音候选框上屏需用户物理键盘确认。 |
+| 中文输入法（拼音组合） | **PASS** | 用户在真实 Chat 的旁注窗口中确认拼音输入正常。对应生产事件确认输入框在打开后接收键盘焦点。 |
 | Enter 提交行为 | **PASS** | 非 IME 组合态下按 `Enter` 保存 `SubmittedDraft` 并显示 Phase 4 提示，不误触发主 Chat 发送。 |
 | Backspace / Ctrl+A / Ctrl+C / Ctrl+V | **PASS** | WPF `TextBox` 键盘编辑与全选操作严格限制在旁注 `InputBox` 内，不影响 `QuoteTextBlock` 或主 Chat。 |
 | 关闭旁注 | **PASS** | 点击 `×` 仅关闭当前旁注，解除事件订阅并恢复 Codex 焦点，不影响其他已打开旁注。 |

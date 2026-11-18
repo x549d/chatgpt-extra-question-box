@@ -22,7 +22,7 @@
 | Phase 1 | 真实选区捕获 | 完成 | `f606855` · [PHASE-1-SELECTION-ACCEPTANCE.md](docs/PHASE-1-SELECTION-ACCEPTANCE.md) |
 | Phase 2 | 选区旁浮动按钮（Codex 模式） | 完成 | `53bf7c3` · [PHASE-2-OVERLAY-ACCEPTANCE.md](docs/PHASE-2-OVERLAY-ACCEPTANCE.md) |
 | Phase 2R | Codex Chat 模式支持 + 常驻 + 插件化 | **PASS** | `7f7b19a` · [PHASE-2R-CHAT-ACCEPTANCE.md](docs/PHASE-2R-CHAT-ACCEPTANCE.md) |
-| **Phase 3** | **选区旁注小框（自动引用原文、自动聚焦、多旁注与生命周期）** | **已完成（自测 78/78，xUnit 13/13，本机已部署）** | [PHASE-3-INLINE-ANNOTATION-ACCEPTANCE.md](docs/PHASE-3-INLINE-ANNOTATION-ACCEPTANCE.md) |
+| **Phase 3** | **选区旁注小框（自动引用原文、自动聚焦、多旁注与生命周期）** | **生产入口已复验（自测 78/78，xUnit 27/27）** | [Phase 3 验收](docs/PHASE-3-INLINE-ANNOTATION-ACCEPTANCE.md) · [生产浮层修复](docs/PRODUCTION-COMPANION-OVERLAY-REPAIR.md) |
 | Phase 4 | 接入本机 ChatGPT 登录 / App Server 实时回答 | 未开始 | — |
 | Phase 5 | 连续追问、历史持久化与会话隔离 | 未开始 | — |
 
@@ -36,11 +36,15 @@
 | --- | --- | --- |
 | **Phase 3A** | 点击「提问」后基于按钮绑定的 `SelectionSnapshot` 立即在选区旁弹出 `AnnotationWindow` 小框，不重新查询可能失效的 UIA 选区，不打开 Companion 或浏览器 | **PASS** |
 | **Phase 3B** | 自动引用选中文字（完整保留换行、缩进、连续空格、标点、中英文及多行代码），支持引用区折叠/展开，后续重新选区不覆盖已有旁注 | **PASS** |
-| **Phase 3C** | 打开小框时通过 Win32 Owner + `ActivateWindow` + `Keyboard.Focus` 自动聚焦输入框；启用 `InputMethod.IsInputMethodEnabled` 并过滤 `ImeProcessedKey` 保护中文输入法组合态；支持 `Enter`、`Backspace`、`Ctrl+A/C/V` 严格限定在旁注输入框内 | **PARTIAL（自动化全通过，实机中文输入法待人工最终确认）** |
+| **Phase 3C** | 打开小框时通过 Win32 Owner + `ActivateWindow` + `Keyboard.Focus` 自动聚焦输入框；启用 `InputMethod.IsInputMethodEnabled` 并过滤 `ImeProcessedKey` 保护中文输入法组合态；支持 `Enter`、`Backspace`、`Ctrl+A/C/V` 严格限定在旁注输入框内 | **PASS（自动化通过，生产输入焦点与拼音实测通过）** |
 | **Phase 3D** | 支持多个独立旁注（`ann-1`、`ann-2`…）并存，各自独立保存 `selected_text`、`input_draft`、`expanded_state`、`window_position`；关闭或折叠互不干扰；位置自动避让防重叠 | **PASS** |
 | **Phase 3E** | 右/左/下/上四侧优先级定位并避开底部 Composer；支持标题栏拖动与显示器工作区裁剪；Codex 窗口移动同步重定位；页面滚动跟随与离屏自动隐藏/恢复；Codex 失焦隐藏与回前台恢复且不重复建窗；关闭时完整释放事件与窗口资源 | **PASS** |
 
 ---
+
+## 生产后台与诊断
+
+Companion 和 Watcher 在 `WinSta0\Default` 启动，在其他桌面返回退出码 4，避免不可见后台占用当前用户的单实例锁。`companion.log` 使用临时选区 ID 关联 UIA 事件、资格判定、实际浮层以及旁注打开。启动失败查看 `startup-rejections.log`，配置目录不可写时诊断会尝试临时目录。[生产回归与定位记录](docs/PRODUCTION-COMPANION-OVERLAY-REPAIR.md)
 
 ## 目录结构
 
@@ -74,7 +78,7 @@ scripts/Uninstall-Plugin.ps1
 # Release 构建整个解决方案（0 警告、0 错误）
 dotnet build ChatGptContextNotesNative.sln -c Release -p:NuGetAudit=false
 
-# 运行 xUnit 单元测试（13/13 通过）
+# 运行 xUnit 单元测试（27/27 通过）
 dotnet test ChatGptContextNotesNative.sln -c Release --no-build
 
 # 运行内置自测（78/78 通过）
@@ -91,4 +95,4 @@ dotnet src/SelectionProbe/bin/Release/net10.0-windows/SelectionProbe.dll --stop
 
 ## 安全约束
 
-不注入 Codex 进程，不修改其安装文件，不读取进程内存、Cookie、密码或 Token。日志只记录状态、角色、矩形数量与坐标、文本长度、耗时和错误类型，**不记录选中文字或用户输入问题正文**。测试时不在真实 Chat 中输入或发送内容。
+不注入 Codex 进程，不修改其安装文件，不读取进程内存、Cookie、密码或 Token。日志只记录状态、角色、矩形数量与坐标、文本长度、耗时和错误类型，**不记录选中文字或用户输入问题正文**。生产验收的输入仅用于未发送的临时草稿和旁注。

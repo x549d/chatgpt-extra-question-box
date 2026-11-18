@@ -39,6 +39,13 @@ internal sealed record WindowGeometry(
 
 internal readonly record struct DisplayArea(nint Handle, ScreenRectangle Bounds, ScreenRectangle WorkArea);
 
+internal readonly record struct DesktopContext(string? Station, string? Desktop, int Error)
+{
+    public bool InteractiveStation => string.Equals(Station, "WinSta0", StringComparison.OrdinalIgnoreCase);
+    public bool DefaultDesktop => string.Equals(Desktop, "Default", StringComparison.OrdinalIgnoreCase);
+    public bool CanRunOverlay => InteractiveStation && DefaultDesktop;
+}
+
 internal static class NativeWindows
 {
     private const string CodexPackage = "OpenAI.Codex_2p2nqsd0c76g0";
@@ -61,6 +68,27 @@ internal static class NativeWindows
         nint handle = GetForegroundWindow();
         GetWindowThreadProcessId(handle, out uint pid);
         return new WindowIdentity(handle, pid);
+    }
+
+    public static DesktopContext CurrentDesktop()
+    {
+        const int objectName = 2;
+        var name = new StringBuilder(256);
+        nint station = GetProcessWindowStation();
+        int stationError = Marshal.GetLastWin32Error();
+        if (station == 0)
+            return new(null, null, stationError);
+        if (!GetUserObjectInformationW(station, objectName, name, name.Capacity * sizeof(char), out _))
+            return new(null, null, Marshal.GetLastWin32Error());
+        string stationName = name.ToString();
+        nint desktop = GetThreadDesktop(GetCurrentThreadId());
+        int desktopError = Marshal.GetLastWin32Error();
+        if (desktop == 0)
+            return new(stationName, null, desktopError);
+        name.Clear();
+        return GetUserObjectInformationW(desktop, objectName, name, name.Capacity * sizeof(char), out _)
+            ? new(stationName, name.ToString(), 0)
+            : new(stationName, null, Marshal.GetLastWin32Error());
     }
 
     public static bool IsCodex(WindowIdentity window) => !window.IsEmpty && IsCodexProcess(window.ProcessId);
@@ -292,6 +320,14 @@ internal static class NativeWindows
     private static extern nint SetWindowLongPtrW(nint window, int index, nint newLong);
     [DllImport("kernel32.dll")]
     private static extern uint GetCurrentThreadId();
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern nint GetProcessWindowStation();
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern nint GetThreadDesktop(uint threadId);
+    [DllImport("user32.dll", ExactSpelling = true, SetLastError = true, CharSet = CharSet.Unicode)]
+    private static extern bool GetUserObjectInformationW(nint handle, int index, StringBuilder information, int length, out int needed);
+    [DllImport("user32.dll")]
+    internal static extern bool IsWindowVisible(nint window);
     [DllImport("user32.dll")]
     private static extern uint GetWindowThreadProcessId(nint window, out uint processId);
     [DllImport("user32.dll")]

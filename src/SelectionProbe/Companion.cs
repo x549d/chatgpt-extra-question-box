@@ -27,6 +27,9 @@ internal static class Companion
 
     public static int Run()
     {
+        if (!Diagnostics.RequireInteractiveDesktop("companion"))
+            return Diagnostics.NonInteractiveDesktopExitCode;
+
         string name = SessionName;
         using var instance = new Mutex(initiallyOwned: true, name + ".instance", out bool ownsInstance);
         if (!ownsInstance)
@@ -36,7 +39,7 @@ internal static class Companion
         TextWriter previous = Console.Out;
         Console.SetOut(log);
         AppDomain.CurrentDomain.UnhandledException += (_, args) =>
-            log.WriteLine($"companion fatal error_type={args.ExceptionObject.GetType().Name}");
+            log.WriteLine(SelectionTrace.Empty("companion_fatal").Format("companion_failed", false, args.ExceptionObject.GetType()));
         try
         {
             using var stop = new EventWaitHandle(false, EventResetMode.ManualReset, name + ".stop");
@@ -45,6 +48,7 @@ internal static class Companion
                 (_, _) => cancellation.Cancel(), null, Timeout.Infinite, executeOnlyOnce: true);
             using var watchdog = new Timer(_ => WatchCodex(cancellation), null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
             log.WriteLine($"companion started {Diagnostics.ProcessSummary()}");
+            SelectionTrace.Empty("waiting_for_foreground").Write("companion_started", false);
             try
             {
                 using var overlay = new OverlayHost();
@@ -59,6 +63,7 @@ internal static class Companion
                     {
                         // Recover in place instead of exiting; the user should never need to restart anything.
                         log.WriteLine($"companion monitor_restart error_type={error.GetType().Name} hresult=0x{error.HResult:X8}");
+                        SelectionTrace.Empty("monitor_restart").Write("probe_monitor_failed", false, error.GetType());
                         overlay.Publish(null, "monitor_restart");
                         cancellation.Token.WaitHandle.WaitOne(RestartDelay);
                     }

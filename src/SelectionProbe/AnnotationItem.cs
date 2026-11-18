@@ -11,7 +11,8 @@ internal sealed record SelectionSnapshot(
     ScreenRectangle AnchorRectangle,
     ScreenRectangle[] Rectangles,
     string SelectedText,
-    DateTimeOffset CapturedAt)
+    DateTimeOffset CapturedAt,
+    SelectionTrace? Trace = null)
 {
     public static SelectionSnapshot FromSelection(OverlaySelection selection, ScreenRectangle anchor, DateTimeOffset? now = null) =>
         new(
@@ -21,7 +22,8 @@ internal sealed record SelectionSnapshot(
             anchor,
             [.. selection.Rectangles],
             selection.SelectedText,
-            now ?? DateTimeOffset.UtcNow);
+            now ?? DateTimeOffset.UtcNow,
+            selection.Trace);
 }
 
 /// <summary>
