@@ -5,7 +5,7 @@ using System.Text.Json;
 
 namespace ContextNotes.SelectionProbe;
 
-internal sealed class ProbeMonitor(bool fixtures, bool exerciseTimeout)
+internal sealed class ProbeMonitor(bool fixtures, bool exerciseTimeout, OverlayHost? overlay = null)
 {
     internal static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(180);
@@ -24,13 +24,19 @@ internal sealed class ProbeMonitor(bool fixtures, bool exerciseTimeout)
     private TimeSpan nextSample;
     private SelectionSample? lastSample;
     private WindowGeometry? lastGeometry;
+    private ScreenRectangle windowBounds;
+    private bool selectingWithMouse;
+    private long selectionGeneration;
+    private long requestedGeneration;
 
     public async Task RunAsync(TimeSpan duration, CancellationToken cancellation)
     {
-        Write($"ready seconds={duration.TotalSeconds} sample_ms={PollInterval.TotalMilliseconds} timeout_ms={RequestTimeout.TotalMilliseconds}");
+        string limit = duration == Timeout.InfiniteTimeSpan ? "continuous" : $"{duration.TotalSeconds}";
+        Write($"ready seconds={limit} sample_ms={PollInterval.TotalMilliseconds} timeout_ms={RequestTimeout.TotalMilliseconds}");
         try
         {
-            while (!cancellation.IsCancellationRequested && clock.Elapsed < duration)
+            while (!cancellation.IsCancellationRequested
+                && (duration == Timeout.InfiniteTimeSpan || clock.Elapsed < duration))
             {
                 Tick();
                 await Task.Delay(LoopInterval, cancellation);
@@ -42,7 +48,7 @@ internal sealed class ProbeMonitor(bool fixtures, bool exerciseTimeout)
         }
         finally
         {
-            ResetWorker();
+            ResetWorker("stopped");
             Write("stopped");
         }
     }
@@ -52,9 +58,11 @@ internal sealed class ProbeMonitor(bool fixtures, bool exerciseTimeout)
         WindowIdentity current = NativeWindows.Foreground();
         if (current != foreground)
         {
-            ResetWorker();
+            ResetWorker("foreground-change");
             foreground = current;
             isCodex = NativeWindows.IsCodex(foreground);
+            windowBounds = default;
+            selectingWithMouse = false;
             eventsUnavailable = false;
             nextSample = clock.Elapsed;
             Write(isCodex
@@ -64,6 +72,9 @@ internal sealed class ProbeMonitor(bool fixtures, bool exerciseTimeout)
         if (!isCodex)
             return;
 
+        if (overlay is not null)
+            CheckWindowAndMouse(overlay);
+
         if (request is not null)
         {
             if (request.IsCompleted)
@@ -72,13 +83,13 @@ internal sealed class ProbeMonitor(bool fixtures, bool exerciseTimeout)
             {
                 Write($"watchdog operation={operation} worker={worker!.Id} elapsed_ms={(clock.Elapsed - requestedAt).TotalMilliseconds:F0}; selection invalidated");
                 eventsUnavailable |= operation == Operation.Subscribe;
-                ResetWorker();
+                ResetWorker("uia-timeout");
                 nextSample = clock.Elapsed + PollInterval;
             }
             return;
         }
 
-        if (clock.Elapsed < nextSample)
+        if (selectingWithMouse || clock.Elapsed < nextSample)
             return;
 
         if (worker is null)
@@ -111,7 +122,23 @@ internal sealed class ProbeMonitor(bool fixtures, bool exerciseTimeout)
         }
 
         requestedAt = clock.Elapsed;
+        requestedGeneration = selectionGeneration;
         request = worker.RequestAsync(operation);
+    }
+
+    private void CheckWindowAndMouse(OverlayHost overlay)
+    {
+        ScreenRectangle bounds = NativeWindows.WindowBounds(foreground.Handle);
+        bool dragging = NativeWindows.LeftButtonDown() && !overlay.PointerOverButton;
+        if (bounds == windowBounds && dragging == selectingWithMouse)
+            return;
+
+        selectionGeneration++;
+        if (dragging || bounds != windowBounds)
+            overlay.Publish(null, dragging ? "pointer-selection" : "window-moved");
+        windowBounds = bounds;
+        selectingWithMouse = dragging;
+        nextSample = clock.Elapsed;
     }
 
     private void Receive()
@@ -130,6 +157,11 @@ internal sealed class ProbeMonitor(bool fixtures, bool exerciseTimeout)
                 Write($"selection events subscribed={reply.Subscribed}");
                 return;
             }
+            if (selectingWithMouse || requestedGeneration != selectionGeneration)
+            {
+                nextSample = clock.Elapsed;
+                return;
+            }
 
             SelectionSample sample = reply.Sample ?? throw new InvalidDataException("Missing selection sample.");
             Record(sample);
@@ -137,7 +169,7 @@ internal sealed class ProbeMonitor(bool fixtures, bool exerciseTimeout)
         catch (Exception error) when (error is IOException or JsonException or InvalidOperationException)
         {
             Write($"worker fault={error.GetType().Name}; selection invalidated");
-            ResetWorker();
+            ResetWorker("worker-fault");
             nextSample = clock.Elapsed + RequestTimeout;
         }
     }
@@ -155,6 +187,18 @@ internal sealed class ProbeMonitor(bool fixtures, bool exerciseTimeout)
         bool geometryChanged = geometry != lastGeometry
             || !rectangles.SequenceEqual(lastSample?.Ranges.SelectMany(range => range.Rectangles) ?? []);
         long eventDelta = sample.SelectionEvents - (lastSample?.SelectionEvents ?? 0);
+        if (overlay is not null)
+        {
+            bool assistant = sample.State == SelectionSample.Selected && sample.Ranges.Length > 0
+                && sample.Ranges.All(range => range.Region == SelectionRegion.Assistant
+                    && !string.IsNullOrWhiteSpace(range.Text));
+            bool valid = assistant && rectangles.Any(OverlayPlacement.IsCandidate) && geometry.Bounds == windowBounds;
+            overlay.Publish(valid ? new OverlaySelection(foreground, geometry.Bounds, rectangles) : null,
+                assistant ? "no-visible-rectangle" : sample.State == SelectionSample.Selected ? "non-assistant" : sample.State);
+            if (valid && exerciseTimeout && !stallExercised)
+                stallPending = true;
+        }
+
         if (selectionChanged || geometryChanged || eventDelta != 0)
         {
             Write($"state={sample.State} changed={selectionChanged} events={sample.SelectionEvents} event_delta={eventDelta} " +
@@ -166,8 +210,8 @@ internal sealed class ProbeMonitor(bool fixtures, bool exerciseTimeout)
                     $"rectangles={string.Join(' ', range.Rectangles.Select(Coordinates))}");
                 FixtureMatch? match = fixtures ? Fixtures.Match(range.Text) : null;
                 if (match is not null)
-                    Write(match.Evidence());
-                if (exerciseTimeout && !stallExercised && match is { Exact: true, Fixture.Name: "prose" })
+                    Write($"fixture={match.Name} comparison={(match.Exact ? "ordinal-equal" : "line-endings-differ")}");
+                if (exerciseTimeout && !stallExercised && match is { Exact: true, Name: "prose" })
                     stallPending = true;
             }
         }
@@ -175,8 +219,10 @@ internal sealed class ProbeMonitor(bool fixtures, bool exerciseTimeout)
         lastGeometry = geometry;
     }
 
-    private void ResetWorker()
+    private void ResetWorker(string reason)
     {
+        selectionGeneration++;
+        overlay?.Publish(null, reason);
         worker?.Dispose();
         worker = null;
         if (request is { } abandoned)

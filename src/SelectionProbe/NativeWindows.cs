@@ -12,6 +12,10 @@ internal readonly record struct WindowIdentity(nint Handle, uint ProcessId)
 
 internal readonly record struct ScreenRectangle(double X, double Y, double Width, double Height)
 {
+    public double Right => X + Width;
+    public double Bottom => Y + Height;
+    public double Area => IsValid ? Width * Height : 0;
+
     public bool IsValid => double.IsFinite(X) && double.IsFinite(Y) && Width > 0 && Height > 0
         && double.IsFinite(X + Width) && double.IsFinite(Y + Height);
 
@@ -20,10 +24,20 @@ internal readonly record struct ScreenRectangle(double X, double Y, double Width
     public bool Intersects(ScreenRectangle other) =>
         Math.Max(X, other.X) < Math.Min(X + Width, other.X + other.Width)
         && Math.Max(Y, other.Y) < Math.Min(Y + Height, other.Y + other.Height);
+
+    public ScreenRectangle Intersect(ScreenRectangle other)
+    {
+        double left = Math.Max(X, other.X);
+        double top = Math.Max(Y, other.Y);
+        return new(left, top, Math.Max(0, Math.Min(Right, other.Right) - left),
+            Math.Max(0, Math.Min(Bottom, other.Bottom) - top));
+    }
 }
 
 internal sealed record WindowGeometry(
     uint Dpi, long Monitor, int MonitorCount, ScreenRectangle Bounds, int CursorRectangle);
+
+internal readonly record struct DisplayArea(nint Handle, ScreenRectangle Bounds, ScreenRectangle WorkArea);
 
 internal static class NativeWindows
 {
@@ -102,20 +116,42 @@ internal static class NativeWindows
 
     public static WindowGeometry Geometry(WindowIdentity window, ScreenRectangle[] selection)
     {
-        GetWindowRect(window.Handle, out Rect bounds);
         int cursorRectangle = GetCursorPos(out Point cursor)
             ? Array.FindIndex(selection, rectangle => rectangle.Contains(cursor.X, cursor.Y)) + 1
             : 0;
         return new WindowGeometry(GetDpiForWindow(window.Handle), MonitorFromWindow(window.Handle, 2).ToInt64(),
-            GetSystemMetrics(MonitorCountMetric), new ScreenRectangle(bounds.Left, bounds.Top,
-                bounds.Right - bounds.Left, bounds.Bottom - bounds.Top), cursorRectangle);
+            GetSystemMetrics(MonitorCountMetric), WindowBounds(window.Handle), cursorRectangle);
     }
+
+    public static ScreenRectangle WindowBounds(nint window) =>
+        GetWindowRect(window, out Rect bounds) ? bounds.Screen : default;
+
+    public static nint WindowDisplay(nint window) => MonitorFromWindow(window, 2);
 
     public static System.Windows.Point? CursorInWindow(WindowIdentity window)
     {
         if (!GetCursorPos(out Point cursor) || GetAncestor(WindowFromPoint(cursor), 2) != window.Handle)
             return null;
         return new System.Windows.Point(cursor.X, cursor.Y);
+    }
+
+    public static bool LeftButtonDown() =>
+        (GetAsyncKeyState(GetSystemMetrics(23) != 0 ? 0x02 : 0x01) & 0x8000) != 0;
+
+    public static bool PointerOverWindow(nint window) =>
+        window != 0 && GetCursorPos(out Point cursor) && GetAncestor(WindowFromPoint(cursor), 2) == window;
+
+    public static DisplayArea[] Displays()
+    {
+        var displays = new List<DisplayArea>();
+        EnumDisplayMonitors(0, 0, (monitor, _, _, _) =>
+        {
+            var info = new MonitorInfo { Size = (uint)Marshal.SizeOf<MonitorInfo>() };
+            if (GetMonitorInfoW(monitor, ref info))
+                displays.Add(new DisplayArea(monitor, info.Monitor.Screen, info.Work.Screen));
+            return true;
+        }, 0);
+        return [.. displays];
     }
 
     public static bool IsOnDisplay(ScreenRectangle rectangle)
@@ -131,7 +167,16 @@ internal static class NativeWindows
     }
 
     [StructLayout(LayoutKind.Sequential)]
-    private struct Rect { public int Left, Top, Right, Bottom; }
+    private struct Rect
+    {
+        public int Left, Top, Right, Bottom;
+        public readonly ScreenRectangle Screen => new(Left, Top, Right - Left, Bottom - Top);
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MonitorInfo { public uint Size; public Rect Monitor, Work; public uint Flags; }
+
+    private delegate bool MonitorCallback(nint monitor, nint dc, nint bounds, nint data);
 
     [StructLayout(LayoutKind.Sequential)]
     private struct Point { public int X, Y; }
@@ -156,6 +201,12 @@ internal static class NativeWindows
     private static extern nint MonitorFromRect(ref Rect rectangle, uint flags);
     [DllImport("user32.dll")]
     private static extern int GetSystemMetrics(int metric);
+    [DllImport("user32.dll")]
+    private static extern short GetAsyncKeyState(int key);
+    [DllImport("user32.dll")]
+    private static extern bool EnumDisplayMonitors(nint dc, nint clip, MonitorCallback callback, nint data);
+    [DllImport("user32.dll", ExactSpelling = true)]
+    private static extern bool GetMonitorInfoW(nint monitor, ref MonitorInfo info);
     [DllImport("user32.dll")]
     private static extern bool GetCursorPos(out Point point);
     [DllImport("user32.dll")]
