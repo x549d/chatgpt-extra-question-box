@@ -61,6 +61,18 @@ internal partial class AnnotationWindow : Window
     public Action<AnnotationWindow, string>? DiagnosticLogged { get; set; }
     public Action<AnnotationWindow>? ClosedByUser { get; set; }
     public Action<AnnotationWindow, string>? LayoutChanged { get; set; }
+    public Action? HistoryRequested { get; set; }
+
+    private void OnHistoryClick(object sender, RoutedEventArgs e) => HistoryRequested?.Invoke();
+    private void OnThreadRecoveryClick(object sender, RoutedEventArgs e)
+    {
+        if (Item.IsBusy || !Item.ThreadRecoveryRequired) return;
+        if (MessageBox.Show(this, "原 Thread 不可用。创建新 Thread 后，下次发送将附带原文和已完成的本地问答；这不是恢复原服务端上下文，失败或取消的 AI 内容不会加入。是否继续？", "新上下文恢复", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) != MessageBoxResult.Yes) return;
+        Item.ThreadId = null; Item.SuspendedThreadId = null; Item.RequiresThreadResume = false;
+        Item.ThreadRecoveryRequired = false; Item.ThreadAnchoredWithQuote = false;
+        Item.StatusNotice = "已确认使用新 Thread。请输入问题；不会自动重发。";
+        Item.Persist?.Invoke(Item, true); RefreshConversationUi();
+    }
 
     public nint Handle => new WindowInteropHelper(this).EnsureHandle();
 
@@ -243,6 +255,7 @@ internal partial class AnnotationWindow : Window
         UpdatePlaceholderText();
 
         bool busy = Item.IsBusy;
+        ThreadRecoveryButton.Visibility = Item.ThreadRecoveryRequired ? Visibility.Visible : Visibility.Collapsed;
         StopButton.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
         SendButton.Visibility = busy ? Visibility.Collapsed : Visibility.Visible;
         SendButton.IsEnabled = !busy;

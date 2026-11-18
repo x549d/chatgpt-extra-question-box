@@ -87,6 +87,7 @@ internal sealed class HistoryDatabase : IDisposable
 
     public void SetFlags(string id, string accountScope, bool archived, bool deleted) => Execute("UPDATE annotations SET archived=?,deleted=?,updated_at=? WHERE id=? AND account_scope=?", archived ? "1" : "0", deleted ? "1" : "0", DateTimeOffset.UtcNow.ToString("O"), id, accountScope);
     public void Rename(string id, string accountScope, string title) => Execute("UPDATE annotations SET title=? WHERE id=? AND account_scope=?", title.Trim(), id, accountScope);
+    public string[] AccountScopes() { lock (gate) return Query("SELECT DISTINCT account_scope FROM annotations ORDER BY account_scope").Select(r => r[0]!).ToArray(); }
     public void PurgeDeleted(string accountScope, bool confirmed)
     {
         if (!confirmed) throw new InvalidOperationException("Explicit confirmation required.");

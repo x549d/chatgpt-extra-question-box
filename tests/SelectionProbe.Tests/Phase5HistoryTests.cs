@@ -110,5 +110,46 @@ public sealed class Phase5HistoryTests : IDisposable
         Assert.Single(migrated.Search("account-a")); Assert.True(File.Exists(DbPath + ".pre-v2.db"));
         Assert.Equal("2", migrated.Query("PRAGMA user_version")[0][0]);
     }
+    [Theory]
+    [InlineData("原文")]
+    [InlineData("用户问题")]
+    [InlineData("AI answer")]
+    [InlineData("新标题")]
+    public void SearchFindsQuoteQuestionsAnswersAndTitle(string term)
+    {
+        using var db = new HistoryDatabase(DbPath); var item = Item(); item.AddUserMessage("用户问题");
+        var m = item.BeginAssistantMessage(); item.UpdateAssistantMessage(m, "AI answer", AnnotationGenerationState.Completed, true);
+        db.Save(HistoryRecord.Capture(item)); db.Rename(item.AnnotationId, "account-a", "新标题");
+        Assert.Single(db.Search("account-a", term)); Assert.Empty(db.Search("account-b", term));
+        Assert.Empty(db.Search("account-a", "' OR 1=1 --"));
+    }
+    [Fact] public void DateAndArchiveFiltersAndTrashRestoreAreScoped()
+    {
+        using var db = new HistoryDatabase(DbPath); var r = HistoryRecord.Capture(Item()); db.Save(r);
+        db.Save(HistoryRecord.Capture(Item("b", "account-b")));
+        Assert.Single(db.Search("account-a", since: r.CreatedAt.AddDays(-1), until: r.CreatedAt.AddDays(1)));
+        Assert.Empty(db.Search("account-a", since: r.CreatedAt.AddDays(1)));
+        db.SetFlags("a", "account-b", true, true); Assert.Single(db.Search("account-a"));
+        db.SetFlags("a", "account-a", true, false); Assert.Single(db.Search("account-a", archive: 1)); Assert.Empty(db.Search("account-a", archive: 0));
+        db.SetFlags("a", "account-a", false, true); Assert.Empty(db.Search("account-a")); Assert.Single(db.Search("account-a", deleted: true));
+        db.SetFlags("a", "account-a", false, false); Assert.Single(db.Search("account-a"));
+        Assert.Single(db.Search("account-b"));
+    }
+    [Fact] public void PurgeRequiresConfirmationAndCascadesOnlyDeletedAccountRecords()
+    {
+        using var db = new HistoryDatabase(DbPath);
+        foreach (string id in new[] { "a", "b" }) { var item = Item(id); item.AddUserMessage("test"); db.Save(HistoryRecord.Capture(item)); }
+        db.SetFlags("a", "account-a", false, true);
+        Assert.Throws<InvalidOperationException>(() => db.PurgeDeleted("account-a", false));
+        db.PurgeDeleted("account-b", true); Assert.Single(db.Search("account-a", deleted: true));
+        db.PurgeDeleted("account-a", true); Assert.Single(db.Search("account-a"));
+        Assert.Equal("0", db.Query("SELECT count(*) FROM messages WHERE annotation_id='a'")[0][0]);
+    }
+    [Fact] public void DelayedSnapshotsCannotResurrectPurgedAnnotation()
+    {
+        using var p = new HistoryPersistence(new HistoryDatabase(DbPath)); var item = Item(); p.Save(item, true);
+        p.Suspend(item.AnnotationId); p.Database.SetFlags("a", "account-a", false, true); p.Database.PurgeDeleted("account-a", true);
+        p.Save(item); p.Flush(); Assert.Empty(p.Database.Search("account-a"));
+    }
     public void Dispose() { if (Directory.Exists(root)) Directory.Delete(root, true); }
 }

@@ -40,6 +40,8 @@ internal sealed class OverlayHost : IDisposable
     private string? activeTrackingAnnotationId;
     private int nextAnnotationNumber;
     private readonly HistoryPersistence? history;
+    private HistoryHotkey? historyHotkey;
+    private HistoryWindow? historyWindow;
 
     public OverlayHost(AnnotationService? service = null, HistoryPersistence? history = null)
     {
@@ -74,6 +76,7 @@ internal sealed class OverlayHost : IDisposable
         thread.SetApartmentState(ApartmentState.STA);
         thread.Start();
         dispatcher = ready.Task.GetAwaiter().GetResult();
+        if (history is not null) dispatcher.Invoke(() => historyHotkey = new HistoryHotkey(ShowHistory));
     }
 
     public bool PointerOverButton => NativeWindows.PointerOverWindow(Volatile.Read(ref handle));
@@ -215,6 +218,13 @@ internal sealed class OverlayHost : IDisposable
             {
                 trace.Write("overlay_create_started", false);
                 var created = new QuestionOverlay { Clicked = OnClick };
+                if (history is not null)
+                {
+                    created.ContextMenu = new System.Windows.Controls.ContextMenu();
+                    var entry = new System.Windows.Controls.MenuItem { Header = "旁注历史（Ctrl+Alt+H）" };
+                    entry.Click += (_, _) => ShowHistory();
+                    created.ContextMenu.Items.Add(entry);
+                }
                 nint createdHandle = created.Handle;
                 window = created;
                 Volatile.Write(ref handle, createdHandle);
@@ -373,6 +383,8 @@ internal sealed class OverlayHost : IDisposable
             ClosedByUser = OnAnnotationClosed,
             LayoutChanged = OnAnnotationLayoutChanged
         };
+        popup.HistoryRequested = ShowHistory;
+        if (history is not null) _ = BindAccount(item);
 
         ScreenRectangle viewport = snapshot.Viewport.IsValid
             ? snapshot.Viewport.Intersect(snapshot.WindowBounds)
@@ -419,6 +431,71 @@ internal sealed class OverlayHost : IDisposable
                 $" annotation_visible={NativeWindows.IsWindowVisible(popup.Handle)} quote_exact={quoteMatches} focus_requested={focusRequested}");
         }
         return popup;
+    }
+
+    private async Task BindAccount(AnnotationItem item)
+    {
+        try
+        {
+            var account = await annotationService.ReadCurrentAccountAsync();
+            if (disposed || item.IsClosed) return;
+            if (account.Status == AppServerLoginStatus.LoggedIn && item.AccountScopeId is null)
+            {
+                item.AccountScopeId = account.ScopeFingerprint; item.AccountSummary = account.DisplaySummary;
+                item.Persist?.Invoke(item, true);
+            }
+        }
+        catch (Exception) { Write("event=annotation_account_binding_deferred"); }
+    }
+
+    private void ShowHistory()
+    {
+        if (history is null || disposed) return;
+        if (historyWindow is null)
+        {
+            historyWindow = new HistoryWindow(history, annotationService, RestoreHistory, CloseHistoryAnnotation);
+            historyWindow.Closed += (_, _) => historyWindow = null;
+        }
+        historyWindow.Show(); historyWindow.Activate();
+    }
+
+    private void RestoreHistory(HistoryRecord record)
+    {
+        if (history is null || disposed) return;
+        var existing = annotations.FirstOrDefault(a => a.Item.AnnotationId == record.Id && !a.Item.IsClosed);
+        if (existing is not null) { existing.Show(); existing.FocusInput(); return; }
+        if (owner.IsEmpty || !NativeWindows.IsWindowVisible(owner.Handle))
+        {
+            System.Windows.MessageBox.Show(historyWindow, "请先打开 Codex 的 Chat 页面，再恢复旁注。", "恢复旁注");
+            return;
+        }
+        var item = record.Restore(owner, NativeWindows.WindowBounds(owner.Handle));
+        history.Resume(record.Id);
+        item.Persist = history.Save;
+        var popup = new AnnotationWindow(item, annotationService)
+        {
+            ClosedByUser = OnAnnotationClosed, LayoutChanged = OnAnnotationLayoutChanged,
+            DiagnosticLogged = (_, message) => Write(message), HistoryRequested = ShowHistory
+        };
+        var displays = NativeWindows.Displays();
+        var screen = displays.FirstOrDefault(d => d.WorkArea.Intersects(record.Position));
+        if (!screen.WorkArea.IsValid) screen = displays.FirstOrDefault();
+        if (screen.WorkArea.IsValid) popup.StageOn(screen);
+        var dpi = VisualTreeHelper.GetDpi(popup);
+        var size = popup.MeasurePhysicalSize(dpi.DpiScaleX, dpi.DpiScaleY);
+        var position = record.Position.IsValid ? record.Position : item.LastOwnerBounds;
+        position = OverlayPlacement.ClampToArea(new ScreenRectangle(position.X, position.Y, size.WidthPx, size.HeightPx), screen.WorkArea.IsValid ? screen.WorkArea : item.LastOwnerBounds);
+        annotations.Add(popup); RefreshAnnotationHandles();
+        popup.Place(position); popup.Show(); popup.Place(position, true);
+        item.RecordManualMove(position, item.LastOwnerBounds);
+        popup.FocusInput();
+    }
+
+    private void CloseHistoryAnnotation(string id)
+    {
+        var popup = annotations.FirstOrDefault(a => a.Item.AnnotationId == id);
+        popup?.CloseByUser();
+        history?.Flush(); history?.Suspend(id);
     }
 
     private void OnAnnotationClosed(AnnotationWindow popup)
@@ -656,6 +733,8 @@ internal sealed class OverlayHost : IDisposable
             disposed = true;
         dispatcher.Invoke(() =>
         {
+            historyWindow?.Close();
+            historyHotkey?.Dispose();
             foreach (AnnotationWindow popup in annotations.ToArray())
             {
                 popup.ClosedByUser = null;

@@ -43,6 +43,9 @@ internal sealed class AnnotationService : IDisposable
     public int? AppServerProcessId => client?.ProcessId;
     public bool IsAppServerConnected => client?.IsConnected == true;
 
+    public async Task<AppServerAccountState> ReadCurrentAccountAsync(CancellationToken cancellation = default) =>
+        await (await EnsureClientAsync(cancellation).ConfigureAwait(false)).ReadAccountAsync(cancellation: cancellation).ConfigureAwait(false);
+
     /// <summary>
     /// Submits a question for the given annotation, streams incremental deltas via <paramref name="onUiUpdate"/>,
     /// and completes when the turn finishes, is cancelled, or fails.

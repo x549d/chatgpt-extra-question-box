@@ -13,3 +13,9 @@ No tokens/cookies/pairing codes are collected or stored. Conversation content ex
 Protocol source: [official App Server documentation](https://learn.chatgpt.com/docs/app-server), checked 2026-11-18 (`thread/start`, `thread/resume`). SQLite durability: [SQLite pragma documentation](https://sqlite.org/pragma.html).
 
 Validation: Release 0 warnings/errors; 39 original + 9 persistence tests (48 total). Tests cover 3 annotations × 3 turns, ordering, draft/UI/quote restoration, account isolation, interrupted output, transaction rollback, uniqueness, concurrent writes, version migration, future schema rejection, backup/reopen and exit flush. Real UI recovery and live Thread resumption are tracked separately in the final acceptance report; automated pipe tests are not live-account acceptance.
+
+## 5B — history management
+
+Open with Ctrl+Alt+H, the annotation's History button, or the selection entry context menu. Lightweight WPF history window supports one account scope at a time, 300ms debounced background search across quote/title/questions/answers, creation-date range, archive filter, 50-record pages, rename, archive/unarchive, soft-delete/restore, confirmed per-account purge and backup export. Opening a record rechecks the current official account; old scopes remain browsable but cannot continue under another account. No automatic resend. Annotation ID deduplication prevents duplicate restored windows. Deleted/archived active popups are closed and delayed saves suppressed so purging cannot resurrect them.
+
+Validation: 55/55 xUnit (39 original, 9 persistence, 7 history); Release 0 warnings/errors. Real UI checks remain pending deployment.

@@ -5,6 +5,7 @@ internal sealed class HistoryPersistence : IDisposable
 {
     private readonly object gate = new();
     private readonly Dictionary<string, HistoryRecord> pending = new(StringComparer.Ordinal);
+    private readonly HashSet<string> suppressed = new(StringComparer.Ordinal);
     private readonly Timer timer;
     public HistoryDatabase Database { get; }
     public string? LastFailure { get; private set; }
@@ -17,10 +18,13 @@ internal sealed class HistoryPersistence : IDisposable
     {
         lock (gate)
         {
+            if (suppressed.Contains(item.AnnotationId)) return;
             pending[item.AnnotationId] = HistoryRecord.Capture(item);
             if (immediate) Flush();
         }
     }
+    public void Suspend(string id) { lock (gate) { pending.Remove(id); suppressed.Add(id); } }
+    public void Resume(string id) { lock (gate) suppressed.Remove(id); }
     public bool Flush()
     {
         lock (gate)
