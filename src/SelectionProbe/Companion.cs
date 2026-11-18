@@ -14,7 +14,7 @@ internal static class Companion
     private static readonly TimeSpan CodexAbsentLimit = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan RestartDelay = TimeSpan.FromSeconds(2);
 
-    private static string SessionName
+    internal static string SessionName
     {
         get
         {
@@ -102,47 +102,102 @@ internal static class Companion
     }
 
     /// <summary>
-    /// Entry point for the plugin hook. Returns immediately, writes nothing to stdout (SessionStart stdout would
-    /// become model context) and starts the companion without inheriting the hook's pipes.
+    /// Entry point for the plugin hook. The launcher detaches the companion and bounds the readiness check.
+    /// SessionStart stdout would become model context, so all status goes to local diagnostics.
     /// </summary>
-    public static int Launch()
-    {
-        string source = ReadHookSource();
-        using var primary = new Diagnostics.RotatingLog(Path.Combine(Diagnostics.LogDirectory, "launch.log"));
-        // Mirror into the plugin data directory so the hook result is visible even if Codex runs hooks under
-        // a different Windows profile.
-        string? pluginData = Environment.GetEnvironmentVariable("PLUGIN_DATA");
-        using var mirror = string.IsNullOrEmpty(pluginData) ? null
-            : new Diagnostics.RotatingLog(Path.Combine(pluginData, "launch.log"));
-        void Log(string line)
-        {
-            primary.WriteLine(line);
-            mirror?.WriteLine(line);
-        }
+    public static int Launch() => Launch("hook_fired", ReadHookSource(), Environment.GetEnvironmentVariable("PLUGIN_DATA"));
 
-        if (Mutex.TryOpenExisting(SessionName + ".instance", out Mutex? existing))
-        {
-            existing.Dispose();
-            Log($"hook_fired source={source} companion=already_running");
-            return 0;
-        }
+    public static int LaunchFromDesktop() => Launch("desktop_startup", "windows_foreground", null);
+
+    private static int Launch(string entry, string source, string? pluginData)
+    {
+        using var launchGate = new Mutex(false, SessionName + ".launch");
+        bool entered;
         try
         {
-            string executable = Environment.ProcessPath ?? throw new InvalidOperationException("Missing process path.");
-            var start = new ProcessStartInfo(executable, "--companion")
+            entered = launchGate.WaitOne(TimeSpan.FromSeconds(4));
+        }
+        catch (AbandonedMutexException)
+        {
+            entered = true;
+        }
+        if (!entered)
+            return 1;
+
+        try
+        {
+            using var primary = new Diagnostics.RotatingLog(Path.Combine(Diagnostics.LogDirectory, "launch.log"));
+            // The plugin data mirror is visible even if the hook runs in a different Windows profile.
+            using var mirror = string.IsNullOrEmpty(pluginData) ? null
+                : new Diagnostics.RotatingLog(Path.Combine(pluginData, "launch.log"));
+            void Log(string line)
             {
-                UseShellExecute = true,
-                WindowStyle = ProcessWindowStyle.Hidden,
-                WorkingDirectory = AppContext.BaseDirectory
-            };
-            using Process? process = Process.Start(start);
-            Log($"hook_fired source={source} companion=started pid={process?.Id} {Diagnostics.ProcessSummary()}");
+                string record = $"{entry} source={source} {line}";
+                primary.WriteLine(record);
+                mirror?.WriteLine(record);
+            }
+
+            if (Mutex.TryOpenExisting(SessionName + ".instance", out Mutex? existing))
+            {
+                existing.Dispose();
+                Log("companion=already_running");
+                return 0;
+            }
+
+            string executable = Environment.ProcessPath ?? throw new InvalidOperationException("Missing process path.");
+            return LaunchChild(CompanionStartInfo(executable, typeof(Companion).Assembly.Location), IsReady, Log);
+        }
+        finally
+        {
+            launchGate.ReleaseMutex();
+        }
+    }
+
+    internal static ProcessStartInfo CompanionStartInfo(string executable, string assembly)
+    {
+        var start = new ProcessStartInfo(executable)
+        {
+            UseShellExecute = true,
+            WindowStyle = ProcessWindowStyle.Hidden,
+            WorkingDirectory = AppContext.BaseDirectory
+        };
+        if (Path.GetFileNameWithoutExtension(executable).Equals("dotnet", StringComparison.OrdinalIgnoreCase))
+            start.ArgumentList.Add(assembly);
+        start.ArgumentList.Add("--companion");
+        return start;
+    }
+
+    internal static int LaunchChild(ProcessStartInfo command, Func<bool> isReady, Action<string> log)
+    {
+        try
+        {
+            using Process? process = Process.Start(command);
+            var elapsed = Stopwatch.StartNew();
+            do
+            {
+                if (process is { HasExited: false } && isReady())
+                {
+                    log($"companion=started pid={process.Id}");
+                    return 0;
+                }
+            } while (process is not null && !process.WaitForExit(50) && elapsed.Elapsed < TimeSpan.FromSeconds(2));
+            log(process is { HasExited: true }
+                ? $"companion=start_failed reason=exit_before_ready exit_code={process.ExitCode}"
+                : "companion=start_failed reason=ready_timeout");
         }
         catch (Exception error) when (error is System.ComponentModel.Win32Exception or InvalidOperationException)
         {
-            Log($"hook_fired source={source} companion=start_failed error_type={error.GetType().Name}");
+            log($"companion=start_failed error_type={error.GetType().Name}");
         }
-        return 0;
+        return 1;
+    }
+
+    private static bool IsReady()
+    {
+        if (!EventWaitHandle.TryOpenExisting(SessionName + ".stop", out EventWaitHandle? stop))
+            return false;
+        using (stop)
+            return !stop.WaitOne(0);
     }
 
     private static string ReadHookSource()

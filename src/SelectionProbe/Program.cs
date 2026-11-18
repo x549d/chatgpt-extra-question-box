@@ -31,6 +31,10 @@ internal static class Program
                 return Companion.Launch();
             if (args is ["--status"] or ["--stop"])
                 return Companion.Status(stopRequested: args[0] == "--stop");
+            if (args is ["--watch-codex"])
+                return DesktopStartup.Watch();
+            if (args is ["--watcher-status"] or ["--stop-watcher"])
+                return DesktopStartup.Status(stopRequested: args[0] == "--stop-watcher");
             if (args is ["--inspect"])
                 return InspectRunner.Run(TimeSpan.FromSeconds(180));
             if (args is ["--inspect", "--seconds", var inspectSeconds]
@@ -97,6 +101,7 @@ internal static class Program
     private static int Usage()
     {
         Console.Error.WriteLine("SelectionProbe [--companion | --launch | --status | --stop | --self-test]");
+        Console.Error.WriteLine("SelectionProbe [--watch-codex | --watcher-status | --stop-watcher]");
         Console.Error.WriteLine("SelectionProbe --inspect [--seconds 10..900]");
         Console.Error.WriteLine("SelectionProbe [--overlay [--exercise-timeout] | --fixtures] [--seconds 1..600]");
         return 2;
@@ -122,6 +127,7 @@ internal static class Program
         TestOverlayPlacement();
         await TestOverlayWindowAsync();
         TestChatRules();
+        TestDesktopStartup();
 
         const string programFiles = @"C:\Program Files";
         const string protectedImage = @"C:\Program Files\WindowsApps\OpenAI.Codex_26.1111.2228.0_x64__2p2nqsd0c76g0\app\ChatGPT.exe";
@@ -230,6 +236,30 @@ internal static class Program
                 && placed.Bounds.Y >= work.Y && placed.Bounds.Bottom <= work.Bottom,
                 FormattableString.Invariant($"entry never covers the selection and stays inside the viewport ({anchorCase.X})"));
         }
+    }
+
+    private static void TestDesktopStartup()
+    {
+        var gate = new DesktopStartupGate();
+        Require(!gate.ShouldLaunch(0, 0) && gate.ShouldLaunch(110, 0), "desktop startup requires a foreground process");
+        gate.Record(110, true, 10);
+        Require(!gate.ShouldLaunch(110, 20_000) && gate.ShouldLaunch(111, 20_000),
+            "desktop startup waits for a new Codex process after success");
+        gate.Record(111, false, 20_000);
+        Require(!gate.ShouldLaunch(111, 29_999) && gate.ShouldLaunch(111, 30_000),
+            "desktop startup backs off after a failed launch");
+
+        var hosted = Companion.CompanionStartInfo(@"C:\Program Files\dotnet\dotnet.exe", @"C:\Notes Test\SelectionProbe.dll");
+        var native = Companion.CompanionStartInfo(@"C:\Notes Test\SelectionProbe.exe", @"C:\Notes Test\SelectionProbe.dll");
+        Require(hosted.ArgumentList.SequenceEqual([@"C:\Notes Test\SelectionProbe.dll", "--companion"])
+            && native.ArgumentList.SequenceEqual(["--companion"]), "launcher preserves argument boundaries on Windows");
+
+        var messages = new List<string>();
+        string missing = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "SelectionProbe.exe");
+        var unavailable = Companion.CompanionStartInfo(missing, "");
+        Require(Companion.LaunchChild(unavailable, static () => false, messages.Add) == 1
+            && messages.SequenceEqual(["companion=start_failed error_type=Win32Exception"]),
+            "launcher reports a missing executable without logging its path");
     }
 
     private static void TestChatRules()

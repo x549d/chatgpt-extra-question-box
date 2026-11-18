@@ -10,7 +10,7 @@
 - UIA 读取真实 Codex 窗口里的选区文字和屏幕矩形，能保留连续空格、缩进和换行，因此**不使用剪贴板**。
 - 按钮是一个不抢焦点的透明 WPF 浮层（Overlay），视觉上贴合 Chat。不注入 Codex 进程，不修改安装文件，不读取进程内存。
 - UIA 调用放在可超时、可重启的独立工作进程中（两秒看门狗），WPF 界面线程不做 UIA 查询。
-- 以 Codex **本地插件**形式安装，由官方 SessionStart lifecycle hook 自动拉起后台进程。
+- 以 Codex **本地插件**形式安装，可由 `SessionStart` 拉起后台。Windows 启动监视器覆盖冷启动后直接打开已有 Chat 的场景。
 - AI 后端（Phase 4）计划复用本机 Codex App Server 的现有 ChatGPT 登录，不依赖 Edge 和浏览器扩展。
 
 ## 阶段进度
@@ -20,7 +20,7 @@
 | Phase 0 | 可行性调查 | 完成 | `733bdfb` · [PHASE-0-FEASIBILITY.md](docs/PHASE-0-FEASIBILITY.md) |
 | Phase 1 | 真实选区捕获 | 完成 | `f606855` · [PHASE-1-SELECTION-ACCEPTANCE.md](docs/PHASE-1-SELECTION-ACCEPTANCE.md) |
 | Phase 2 | 选区旁浮动按钮（只验收了 Codex 模式） | 完成 | `53bf7c3` · [PHASE-2-OVERLAY-ACCEPTANCE.md](docs/PHASE-2-OVERLAY-ACCEPTANCE.md) |
-| **Phase 2R** | **Codex Chat 模式支持 + 常驻 + 插件化** | **PARTIAL，实际交互已验收，已有 Chat 冷启动未触发后台** | [PHASE-2R-CHAT-ACCEPTANCE.md](docs/PHASE-2R-CHAT-ACCEPTANCE.md) |
+| **Phase 2R** | **Codex Chat 模式支持 + 常驻 + 插件化** | **PASS，真实冷启动后自动拉起并显示提问入口** | [PHASE-2R-CHAT-ACCEPTANCE.md](docs/PHASE-2R-CHAT-ACCEPTANCE.md) |
 | Phase 3 | 按钮 → 小型提问框（自动引用原文、自动聚焦） | 未开始 | — |
 | Phase 4 | 接入本机 ChatGPT 登录 / App Server | 未开始 | — |
 | Phase 5 | 流式输出、连续追问、多旁注、上下文隔离 | 未开始 | — |
@@ -34,7 +34,7 @@
 - **Chat 模式失效的原因**：`53bf7c3` 先判断模式再读选区。模式判断只认名字为 `切换模式，当前模式：Codex` 的按钮；Chat 模式下按钮名是 `…当前模式：ChatGPT`，于是每次都直接返回 `codex-mode-unconfirmed`。而且找不到按钮时，每 180 ms 就扫描一次整棵 UI 树。
 - **185 秒后自动退出**：这是 Phase 2 验收命令带的 `--seconds 185` 造成的。另外，正式产品所需的单实例、自启动和崩溃恢复当时也都没有。
 
-### 已实现（自测 50/50 PASS）
+### 已实现（自测 55/55 PASS，Hook 诊断 9/9 PASS）
 
 | 项 | 实现 |
 | --- | --- |
@@ -45,7 +45,8 @@
 | 按钮定位 | 右侧（与首行顶部对齐）→ 左侧 → 下方 → 上方；过滤 1×2 等异常矩形；不盖住选区，不超出可视区和屏幕工作区 |
 | 按钮外观 | 小胶囊「提问」（矢量气泡图标）；不抢焦点（`WS_EX_NOACTIVATE` / `MA_NOACTIVATE`） |
 | 常驻 | `--companion`：每个用户会话只有一个实例（命名 Mutex）。监控循环出错会原地重建；浮层线程的未处理异常只会隐藏按钮。`--stop` 退出；Codex 关闭 60 秒后自动退出 |
-| 插件 | `codex-plugin/` 是本地 marketplace，插件 `context-notes` 的 SessionStart hook → `hooks/launch.cmd` → `SelectionProbe.exe --launch`。`--launch` 不向 stdout 写任何内容（SessionStart 的 stdout 会进入模型上下文），用 ShellExecute 启动后台进程、不继承 hook 管道，然后立即退出 |
+| 插件 | `codex-plugin/` 是本地 marketplace。`SessionStart` 通过 `hooks/launch.cmd` 启动后台。启动器不向 stdout 写内容，由 ShellExecute 启动子进程，并在有界等待内检查就绪状态 |
+| Windows 补充启动 | Windows 登录时运行一个当前用户监视器。Codex 窗口进入前台后，监视器验证程序包身份并启动后台。监视器和 Hook 共用启动锁，退出 Codex 后 Companion 按原有超时机制退出 |
 | 诊断 | `--inspect`：只读输出 Chat 的 UIA 结构（控件类型、类名、矩形、长度、角色标题），**不输出正文** |
 
 ### 已在本机完成的安装
@@ -55,13 +56,14 @@
 
 ### 真实桌面进度
 
-本机插件 `0.2.0` 已部署 `56b0ecc`，并重新核对与 Release 构建一致。真实 Chat 验证助手选区触发「提问」、用户及输入框选区排除和选区离屏隐藏。用户已确认物理鼠标点击、Codex 保持前台且未误向主 Chat 发送消息。桌面客户端完全退出并重开后，只打开已有 Chat 未观察到 `SessionStart` 启动后台。手动执行同一启动脚本已恢复后台。各项步骤和脱敏证据见 [验收报告](docs/PHASE-2R-CHAT-ACCEPTANCE.md)。
+本机插件 `0.2.0` 已部署并确认生产 Hook 受信任。诊断实测收到 `resume`，打开或切换已有 Chat 时没有观察到新的派发。最终冷启动由 Windows 监视器自动拉起后台，随后真实划选、按钮点击和前台保留通过。[验收报告](docs/PHASE-2R-CHAT-ACCEPTANCE.md) [SessionStart 专项](docs/SESSIONSTART-HOOK-DIAGNOSTICS.md)
 
 ### 已知风险
 
 - 角色标题、模式按钮名、类名等都来自 Codex 当前版本（26.1111.2228.0，简体中文界面）的可访问性结构，客户端更新后需要复测。英文界面的名称已加入匹配规则，但没有实测。
 - 插件文件更新后，Codex 可能要求重新信任 hook。
-- 后台需要与 Codex 处于同一交互桌面。`launch.log` 记录会话、权限级别和 Codex 前台状态，可用于诊断。
+- 后台需要与 Codex 处于同一交互桌面。`launch.log` 区分启动来源与结果，`companion.log` 记录后台状态，`desktop-startup.log` 记录 Windows 监视器状态。
+- Windows 启动快捷方式绑定已安装插件的版本路径。升级插件后重新运行启动配置脚本以刷新目标。使用 `-Disable` 可注销该快捷方式并停止监视器。
 
 ## 目录结构
 
@@ -76,8 +78,11 @@ src/SelectionProbe/         .NET 10 WPF 后台进程（选区采样、浮层、�
   OverlayPlacement.cs       按钮定位与异常矩形过滤
   Companion.cs              常驻、单实例、--launch / --stop / --status
   Diagnostics.cs            只记录元数据的日志
+  DesktopStartup.cs         当前用户的 Codex 前台启动监视器
 codex-plugin/               Codex 本地 marketplace 与插件（bin/ 由安装脚本生成，不入库）
 scripts/Install-Plugin.ps1  发布程序到插件并注册 marketplace
+scripts/Set-WindowsStartup.ps1  注册或注销当前用户的 Windows 启动补充路径
+scripts/Test-HookDiagnostic.ps1  独立 Hook 诊断回归
 scripts/Uninstall-Plugin.ps1
 ```
 
@@ -90,6 +95,12 @@ dotnet build src/SelectionProbe/SelectionProbe.csproj -c Release -p:NuGetAudit=f
 dotnet src/SelectionProbe/bin/Release/net10.0-windows/SelectionProbe.dll --self-test
 # 构建插件并注册本地 marketplace（之后在 Codex 中安装并信任 hook）
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Install-Plugin.ps1
+# 安装包含监视器的插件版本后，启用当前用户的 Windows 启动补充路径
+.\scripts\Set-WindowsStartup.ps1
+# 移除启动项并停止监视器
+.\scripts\Set-WindowsStartup.ps1 -Disable
+# 独立 Hook 诊断测试
+.\scripts\Test-HookDiagnostic.ps1
 # 后台进程状态 / 停止
 SelectionProbe.exe --status
 SelectionProbe.exe --stop

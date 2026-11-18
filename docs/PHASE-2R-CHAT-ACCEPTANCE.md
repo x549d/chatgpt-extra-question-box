@@ -1,8 +1,8 @@
 # Phase 2R · Codex Desktop Chat 验收
 
-验收日期为 2026-11-18，时间均为 UTC+08:00。本轮从 `ad39503`（`main`）开始，最终测试版本为包含输入框边界修复的 `56b0ecc`。角色修复前的历史基线为 `329e7d5`。
+验收日期为 2026-11-18，时间均为 UTC+08:00。输入框边界修复基线为 `56b0ecc`，冷启动专项从 `e4785b3` 开始。最终验收使用本提交中的 Windows 启动补充路径。
 
-**Phase 2R 为 PARTIAL。** 最终版已在真实 Chat 确认助手选区、按钮显示与定位、物理鼠标点击及前台保留、选区离开视口后隐藏，以及用户消息和输入框排除。冷启动的应用重开已通过，但只打开已有 Chat 时，未观察到 `SessionStart` 启动后台。
+**Phase 2R 为 PASS。** 最终版在真实 Chat 中通过冷启动后自动拉起、后台驻留、助手选区、按钮显示与定位、物理点击及前台保留。用户消息和输入框排除、选区离屏隐藏已实测通过。最终冷启动由 Windows 监视器拉起。生产 Hook 已加载并受信任，单靠 Hook 打开已有 Chat 曾无法自动启动。[SessionStart 专项记录](SESSIONSTART-HOOK-DIAGNOSTICS.md)
 
 ## 环境
 
@@ -19,9 +19,9 @@
 
 | 项目 | 状态 | 证据 |
 | --- | --- | --- |
-| 源码与部署 | PASS | `56b0ecc` 的输入框边界修复版于 15:03:47 首次部署。15:39:41 为冷启动复验同步了本次 Release 构建，EXE、DLL、运行配置及依赖清单均与构建产物通过 SHA-256 比对。当前 DLL SHA-256 前缀为 `96A117870C1D`。 |
-| 插件与 Hook 配置 | PASS | 本机插件配置 `enabled=true`。安装包的插件清单、Hook 定义和启动脚本与仓库逐字节相同。唯一的 `SessionStart` 处理器包含正确的 Windows 启动命令。找到一条对应的已保存信任记录，未配置单项禁用。 |
-| 后台状态与单实例 | PASS | 最终部署验证启动 PID `28236`，`--status` 返回 `companion_running`。第二个常驻实例以状态码 0 退出，原进程继续运行。 |
+| 源码与部署 | PASS | 16:29:21 部署最终 Release，EXE、DLL、运行配置及依赖清单的 SHA-256 与构建产物一致。当前 DLL SHA-256 前缀为 `FFAB933C4FE5`。 |
+| 插件与 Hook 配置 | PASS | 生产清单已恢复。同一版本的 Codex 运行时返回 `source=plugin`、`enabled=true`、`trust=trusted`。生产配置覆盖 `startup` 和 `resume`。 |
+| 后台状态与单实例 | PASS | 冷启动得到后台 PID `17264`。额外的监视器和 Companion 实例均正常退出，重复启动器返回 `already_running`。 |
 | 日志目录 | PASS | `companion.log` 记录新版启动、实际 Chat 和选区状态。独立只读诊断成功创建当轮日志。 |
 
 ## 验收矩阵
@@ -29,8 +29,9 @@
 | 项目 | 状态 | 证据 |
 | --- | --- | --- |
 | Chat 模式 | PASS | 真实前台窗口的 UIA 提供程序与插件均报告 `mode_detection=chat` 或 `mode=chat`。定位规则同时要求会话正文、滚动区域和桌面主内容层级。 |
-| 修复版冷启动自动拉起 | FAIL | 当前后台已正常停止，旧 Codex 主进程 `34604` 所属的 14 个程序进程全部退出。通过 Windows 注册入口重开，主进程变为 `28004`。已有 Chat 的只读诊断确认 `mode=chat`。90 秒观察窗及随后导航验证期间无新的 `SessionStart` 启动日志，后台仍为 `companion_not_running`。 |
-| Hooks 设置页 | NOT TESTED | 本机配置启用了插件，Hook 没有按来源过滤或被单项禁用，存在定义及脚本的信任记录。未在桌面设置页确认运行时信任状态。 |
+| 最终版冷启动自动拉起 | PASS | 完全退出旧客户端后重开，后台在首个可交互 Codex 窗口出现约一秒后由 `windows_foreground` 自动拉起。未发送消息。 |
+| Hook 审核与派发 | PASS | 用户审核临时诊断 Hook，真实收到两个 `resume`。恢复生产清单并重新审核后，运行时报告 `trusted`。 |
+| 仅依赖 Hook 自动拉起 | FAIL | 历史版本打开已有 Chat 时曾无 `SessionStart` 启动记录。最终成功用例明确由 Windows 监视器拉起，见分项记录。 |
 | 助手回答识别 | PASS | 最终版在真实 Chat 返回 `selection_role=assistant`、`selection_valid=True`、`reason=eligible`。 |
 | 用户消息排除 | PASS | 最终版的真实选区返回 `selection_role=user`、`selection_valid=False`、`reason=role_user`，浮层报 `overlay_hidden_reason=role_user`。 |
 | 输入框排除 | PASS | 最终版在 15:38:19 和 15:38:27 检测到真实 Chat 输入框选区，报告 `selection_role=composer`、`selection_valid=False` 和 `overlay_hidden_reason=role_composer`。诊断仅记录状态与角色。 |
@@ -41,7 +42,7 @@
 | 真实物理鼠标 | PASS | 用户确认于 2026-11-18 15:09:57 亲自用物理鼠标点击了「提问」按钮。 |
 | Codex 保持前台 | PASS | 用户确认点击后 Codex 仍在前台，且同一事件记录 `codex_foreground=true`。 |
 | 无意外发送主 Chat 消息 | PASS | 用户确认此次物理点击未向 Codex 主 Chat 发送消息。 |
-| 后台持续运行 | PASS | 最终版后台 PID `28236` 持续运行约 35 分钟，直到 15:39:40 主动执行 `--stop`。冷启动后手动跑本机启动脚本得到 PID `8272`，约 69 秒后仍为 `companion_running`。冷启动后的自动驻留另见冷启动记录。 |
+| 后台持续运行 | PASS | 16:32:45 自动启动的后台 PID `17264` 在 16:37:22 的复核中仍为 `companion_running`，已持续 278 秒。 |
 | 取消选择和失焦 | PARTIAL | `ad39503` 的真实可见按钮在选区清空时消失。最终版真实日志观察到失焦与隐藏请求，从可见按钮状态触发的最终版失焦待复测。 |
 | 恢复前台 | PARTIAL | 最终版识别到重新进前台的桌面窗口和 Chat 模式。有效选区和可见入口恢复待复测。 |
 | 选区离屏 | PASS | 点击后同一真实选区仍被识别为 `assistant`，其可见矩形变为 0，窗口尺寸和选区事件计数未变。入口记录 `overlay_visible=false overlay_hidden_reason=selection_outside_viewport`。 |
@@ -94,7 +95,17 @@
 15:38:27.033  overlay_visible=false overlay_hidden_reason=role_composer
 ```
 
-### 冷启动分项
+### 最终冷启动分项
+
+| 项目 | 状态 | 证据 |
+| --- | --- | --- |
+| 停止旧后台 | PASS | 16:31:17 后 `--status` 返回 `companion_not_running`，监视器没有重新启动同一 Codex PID。 |
+| 完全退出与重开 | PASS | 16:32:41.863 旧程序包进程数归零，随后 Windows 打开客户端，新主 PID 为 `15744`。 |
+| 自动拉起 | PASS | `16:32:45.272 desktop_startup source=windows_foreground companion=started pid=17264`。 |
+| 冷启动后划词 | PASS | 16:33:03.201 报告真实助手选区和 `reason=eligible`，16:33:03.672 报告 `overlay_visible=true`。 |
+| 实鼠点击与前台 | PASS | `16:33:05.124 annotation_entry_clicked codex_foreground=true`。用户确认按钮出现，Codex 保持前台。 |
+
+### 历史 Hook 单路径复验
 
 | 项目 | 状态 | 证据 |
 | --- | --- | --- |
@@ -140,16 +151,17 @@
 | 检查 | 结果 |
 | --- | --- |
 | Release build | PASS，0 个警告、0 个错误 |
-| `.NET --self-test` | PASS，50/50。原有 48 项和新增的离屏编辑器筛选、输入框边界定位回归均通过。 |
+| `.NET --self-test` | PASS，55/55。原有 50 项及新增的自动启动、重试、参数边界和启动失败回归通过。 |
+| Hook 诊断测试 | PASS，9/9。覆盖 `startup`、`resume`、输入校验、等待超时、字段脱敏和写日志失败。 |
 | `dotnet test` | 发现 0 项，项目未注册独立测试运行器 |
 | 凭证扫描 | PASS，扫描已跟踪文件和本轮差异，未命中已检查的凭证模式 |
 
-## 剩余验收
+## 冷启动复验步骤
 
 ### 冷启动重验
 
 1. 对照 Release 构建核对本机部署，记录旧进程，再通过后台的 `--stop` 正常停止并验证 `companion_not_running`。通过 Codex 的 **文件 → 退出 ChatGPT** 完全退出桌面客户端，确认旧进程退出。
 2. 使用 Windows 开始菜单重新打开客户端，进入一个已有 Chat，保持空闲，无需发送新消息。检查 **设置 → Hooks** 中 Context Notes 的 `SessionStart` 条目，如有审核提示先核对脚本来源。[官方 Hooks 说明](https://learn.chatgpt.com/docs/hooks#review-and-trust-hooks)
-3. 以新客户端 PID、当轮 `hook_fired`、新后台 PID 和两次间隔检查的 `companion_running` 核对启动和驻留。用鼠标拖选助手回答，确认冷启动后的「提问」出现。
+3. 以新客户端 PID、当轮 `hook_fired` 或 `desktop_startup`、新后台 PID 和两次间隔检查的 `companion_running` 核对启动和驻留。用鼠标拖选助手回答，确认冷启动后的「提问」出现。
 
-先核对桌面端能否在只打开已有 Chat 时派发项目的 `SessionStart`，再按上述步骤复验。该核心项通过后即可结束 Phase 2R，开始 Phase 3。多屏和混合 DPI 保留为 NOT TESTED。
+多屏、混合 DPI 和 Windows 重新登录启动保留为 NOT TESTED。本专项限于 Phase 2R。

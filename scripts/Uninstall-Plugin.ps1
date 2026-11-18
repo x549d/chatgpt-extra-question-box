@@ -1,8 +1,9 @@
 [CmdletBinding()]
 param()
 
-# Stops the helper and unregisters the local marketplace. Uninstall the plugin itself from Codex > Plugins first.
+# Stop Windows startup and the helper before uninstalling the plugin from Codex > Plugins.
 $ErrorActionPreference = 'Stop'
+& (Join-Path $PSScriptRoot 'Set-WindowsStartup.ps1') -Disable
 $helper = Get-Process SelectionProbe -ErrorAction SilentlyContinue | Where-Object { $_.Path } | Select-Object -First 1
 if ($helper) { Start-Process -FilePath $helper.Path -ArgumentList '--stop' -WindowStyle Hidden -Wait }
 

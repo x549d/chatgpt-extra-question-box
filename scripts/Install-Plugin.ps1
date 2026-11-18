@@ -17,7 +17,10 @@ $bin = Join-Path $pluginRoot 'bin'
 $running = Get-Process SelectionProbe -ErrorAction SilentlyContinue
 if ($running) {
     $stopper = @($running | Where-Object { $_.Path } | Select-Object -First 1)[0].Path
-    if ($stopper) { Start-Process -FilePath $stopper -ArgumentList '--stop' -WindowStyle Hidden -Wait }
+    if ($stopper) {
+        Start-Process -FilePath $stopper -ArgumentList '--stop-watcher' -WindowStyle Hidden -Wait
+        Start-Process -FilePath $stopper -ArgumentList '--stop' -WindowStyle Hidden -Wait
+    }
     $deadline = [DateTime]::UtcNow.AddSeconds(10)
     while ((Get-Process SelectionProbe -ErrorAction SilentlyContinue) -and [DateTime]::UtcNow -lt $deadline) {
         Start-Sleep -Milliseconds 200

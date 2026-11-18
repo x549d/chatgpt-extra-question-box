@@ -1,0 +1,19 @@
+{
+  "description": "Records SessionStart dispatch without launching Context Notes.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "^(startup|resume)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "exit 0",
+            "commandWindows": "cmd.exe /d /c call \"%PLUGIN_ROOT%\\hooks\\diagnose.cmd\"",
+            "async": true,
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
