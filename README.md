@@ -10,6 +10,7 @@
 
 - [使用说明](docs/USER-GUIDE.md) · [安装与更新](docs/INSTALLATION.md) · [故障排查](docs/TROUBLESHOOTING.md)
 - [实现和测试记录](docs/PHASE-5-PRODUCT.md) · [安全说明](docs/SECURITY.md) · [隐私信息草案](PRIVACY.md)
+- [最终交付与未完成项](docs/PHASE-5-ACCEPTANCE.md)：包括实际测试数量、部署状态、安装器受阻原因和桌面操作停止后的状态。
 - 本阶段保留原有 39 项测试，当前共 **85 项 xUnit**；原有自测 **80 项**。安装专项使用隔离 Codex profile，不能替代干净 Windows 环境认证。
 - 安装包由 `scripts/Build-Release.ps1` 生成到 artifacts，按当前用户安装。未签名，许可证沿用现有 manifest 的 Proprietary 状态，公开发布前需维护者确认法律文本与隐私联系信息。
 
