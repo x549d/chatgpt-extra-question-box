@@ -126,6 +126,7 @@ internal static class Program
         Require(!new ScreenRectangle(0, 0, double.NaN, 20).IsValid, "invalid rectangle");
         TestOverlayPlacement();
         await TestOverlayWindowAsync();
+        await TestPhase3AnnotationsAsync();
         TestChatRules();
         TestDesktopStartup();
 
@@ -299,6 +300,164 @@ internal static class Program
             "selections crossing a heading or a message boundary stay excluded");
         Require(RoleAt(63, 68) == SelectionRegion.Unknown, "neutral marker stops a preceding assistant turn");
     }
+
+    private static Task TestPhase3AnnotationsAsync()
+    {
+        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var sta = new Thread(() =>
+        {
+            try
+            {
+                var ownerWindow = new WindowIdentity(new nint(0x12340), 4242);
+                var windowBounds = new ScreenRectangle(500, 150, 1600, 1000);
+                var viewport = new ScreenRectangle(800, 220, 1100, 760);
+                var anchorA = new ScreenRectangle(920, 360, 220, 28);
+                const string multilineCode = "self.backbone = nn.Sequential(\n    nn.Linear(784, 256),\n    nn.ReLU()  # keep  two  spaces\n)";
+
+                var selectionA = new OverlaySelection(ownerWindow, windowBounds, viewport, [anchorA], multilineCode);
+                var snapshotA = SelectionSnapshot.FromSelection(selectionA, anchorA);
+                Require(snapshotA.SelectedText == multilineCode && snapshotA.AnchorRectangle == anchorA,
+                    "Phase 3A selection snapshot preserves exact text and anchor");
+
+                // Placement priority: right -> left -> below -> above, plus multi-annotation non-overlap.
+                var work = new ScreenRectangle(800, 220, 1100, 760);
+                ButtonPlacement? rightPlaced = OverlayPlacement.PlaceAnnotation(
+                    new ScreenRectangle(850, 340, 180, 28), work, windowBounds, 304, 220, 12, 12);
+                Require(rightPlaced is { Side: "right" } rp && !rp.Bounds.Intersects(new ScreenRectangle(850, 340, 180, 28)),
+                    "Phase 3E annotation placement prefers right side without covering selection");
+                ScreenRectangle firstPlacedBounds = rightPlaced!.Value.Bounds;
+
+                var nearRightEdge = new ScreenRectangle(1680, 340, 180, 28);
+                ButtonPlacement? leftPlaced = OverlayPlacement.PlaceAnnotation(nearRightEdge, work, windowBounds, 304, 220, 12, 12);
+                Require(leftPlaced is { Side: "left" } lp && !lp.Bounds.Intersects(nearRightEdge),
+                    "Phase 3E annotation placement falls back to left side");
+
+                var wideLine = new ScreenRectangle(820, 340, 1040, 28);
+                ButtonPlacement? belowPlaced = OverlayPlacement.PlaceAnnotation(wideLine, work, windowBounds, 304, 220, 12, 12);
+                Require(belowPlaced is { Side: "below" } bp && !bp.Bounds.Intersects(wideLine),
+                    "Phase 3E annotation placement falls back to below");
+
+                var bottomWideLine = new ScreenRectangle(820, 820, 1040, 28);
+                ButtonPlacement? abovePlaced = OverlayPlacement.PlaceAnnotation(bottomWideLine, work, windowBounds, 304, 220, 12, 12);
+                Require(abovePlaced is { Side: "above" } ap && !ap.Bounds.Intersects(bottomWideLine),
+                    "Phase 3E annotation placement falls back to above near composer");
+
+                ButtonPlacement? secondBesideSameAnchor = OverlayPlacement.PlaceAnnotation(
+                    new ScreenRectangle(850, 340, 180, 28), work, windowBounds, 304, 220, 12, 12,
+                    [firstPlacedBounds]);
+                Require(secondBesideSameAnchor is { } sp && sp.Bounds != firstPlacedBounds,
+                    "Phase 3D multiple annotations avoid identical bounds");
+
+                // AnnotationItem and AnnotationWindow tests for 3A, 3B, 3C, 3D, 3E.
+                var itemA = new AnnotationItem("ann-1", snapshotA);
+                Require(itemA.ConversationId == "unconfirmed" && itemA.ExpandedState && itemA.QuoteExpandedState,
+                    "Phase 3D annotation metadata initializes required fields without fabricating conversation_id");
+
+                var windowA = new AnnotationWindow(itemA);
+                nint hwndA = windowA.Handle;
+                int exStyle = GetWindowLongW(hwndA, -20);
+                Require((exStyle & 0x80) != 0 && (exStyle & 0x08000000) == 0,
+                    "Phase 3C annotation window uses WS_EX_TOOLWINDOW without WS_EX_NOACTIVATE so it accepts keyboard and IME focus");
+                Require(System.Windows.Input.InputMethod.GetIsInputMethodEnabled(windowA.InputControl),
+                    "Phase 3C Chinese IME input method is enabled on the annotation TextBox");
+                Require(windowA.InputControl.Focusable && windowA.InputControl.IsTabStop,
+                    "Phase 3C annotation input control is focusable");
+                Require(string.Equals(windowA.QuoteControl.Text, multilineCode, StringComparison.Ordinal),
+                    "Phase 3B quote control preserves multiline code, indentation and consecutive spaces verbatim");
+
+                // Typing and draft state in A
+                windowA.InputControl.Text = "这个函数是什么意思？";
+                Require(itemA.InputDraft == "这个函数是什么意思？",
+                    "Phase 3C typing Chinese updates the annotation input draft");
+
+                // Quote collapse/expand in A
+                windowA.SetQuoteExpanded(false);
+                Require(!itemA.QuoteExpandedState && windowA.QuoteContainer.Visibility == Visibility.Collapsed
+                    && windowA.QuoteControl.Text == multilineCode,
+                    "Phase 3B collapsing quote hides the quote box without losing the quoted text");
+                windowA.SetQuoteExpanded(true);
+                Require(itemA.QuoteExpandedState && windowA.QuoteContainer.Visibility == Visibility.Visible,
+                    "Phase 3B expanding quote restores the quote box");
+
+                // Submit draft in Phase 3 stages the question and shows Phase 4 notice without faking AI output.
+                windowA.SubmitDraft("enter_key");
+                Require(itemA.SubmittedDraft == "这个函数是什么意思？"
+                    && itemA.InputDraft == "这个函数是什么意思？"
+                    && windowA.StatusControl.Visibility == Visibility.Visible
+                    && windowA.StatusControl.Text.Contains("Phase 4", StringComparison.Ordinal),
+                    "Phase 3C submitting draft preserves user input and displays Phase 4 notice");
+
+                // Second and third independent annotations (Phase 3D)
+                var anchorB = new ScreenRectangle(920, 520, 180, 28);
+                var snapshotB = SelectionSnapshot.FromSelection(
+                    new OverlaySelection(ownerWindow, windowBounds, viewport, [anchorB], "nn.Linear(784, 256)"), anchorB);
+                var itemB = new AnnotationItem("ann-2", snapshotB);
+                var windowB = new AnnotationWindow(itemB);
+
+                var anchorC = new ScreenRectangle(920, 660, 210, 28);
+                var snapshotC = SelectionSnapshot.FromSelection(
+                    new OverlaySelection(ownerWindow, windowBounds, viewport, [anchorC], "中文与 English 独立旁注 C"), anchorC);
+                var itemC = new AnnotationItem("ann-3", snapshotC);
+                var windowC = new AnnotationWindow(itemC);
+
+                windowB.InputControl.Text = "第二个旁注的问题";
+                windowC.InputControl.Text = "第三个旁注的问题";
+                Require(itemA.SelectedText == multilineCode
+                    && itemB.SelectedText == "nn.Linear(784, 256)"
+                    && itemC.SelectedText == "中文与 English 独立旁注 C"
+                    && itemA.InputDraft == "这个函数是什么意思？"
+                    && itemB.InputDraft == "第二个旁注的问题"
+                    && itemC.InputDraft == "第三个旁注的问题",
+                    "Phase 3D multiple annotations keep SelectedText and InputDraft strictly isolated");
+
+                // Collapsing B does not collapse A or C
+                windowB.SetExpanded(false);
+                Require(!itemB.ExpandedState && windowB.BodyContainer.Visibility == Visibility.Collapsed
+                    && itemA.ExpandedState && windowA.BodyContainer.Visibility == Visibility.Visible
+                    && itemC.ExpandedState && windowC.BodyContainer.Visibility == Visibility.Visible,
+                    "Phase 3D collapsing one annotation does not affect other annotations");
+                windowB.SetExpanded(true);
+                Require(itemB.ExpandedState && windowB.BodyContainer.Visibility == Visibility.Visible
+                    && itemB.InputDraft == "第二个旁注的问题",
+                    "Phase 3D expanding a collapsed annotation restores its body and draft");
+
+                // Window move delta and manual drag clamping (Phase 3E)
+                itemA.ApplyOwnerDelta(new ScreenRectangle(560, 190, 1600, 1000));
+                Require(itemA.CurrentAnchorRect == new ScreenRectangle(980, 400, 220, 28),
+                    "Phase 3E owner window move shifts the tracked selection anchor by the window delta");
+
+                itemB.RecordManualMove(new ScreenRectangle(1100, 480, 304, 220), windowBounds);
+                itemB.ApplyOwnerDelta(new ScreenRectangle(550, 200, 1600, 1000));
+                Require(itemB.IsManuallyMoved && itemB.ManualOffsetX == 600 && itemB.ManualOffsetY == 330,
+                    "Phase 3E manually dragged annotation preserves its offset relative to the Codex window");
+
+                ScreenRectangle clamped = OverlayPlacement.ClampToArea(
+                    new ScreenRectangle(-200, 1800, 304, 220), new ScreenRectangle(0, 0, 1920, 1040));
+                Require(clamped == new ScreenRectangle(0, 820, 304, 220),
+                    "Phase 3E dragged or repositioned annotation is clamped inside the display work area");
+
+                // Closing B does not close A or C
+                windowB.CloseByUser();
+                Require(itemB.IsClosed && !itemA.IsClosed && !itemC.IsClosed,
+                    "Phase 3D closing one annotation leaves other annotations open");
+
+                windowA.CloseByUser();
+                windowC.CloseByUser();
+                Require(itemA.IsClosed && itemC.IsClosed, "Phase 3E closing annotations releases resources cleanly");
+                completed.SetResult();
+            }
+            catch (Exception error)
+            {
+                completed.SetException(error);
+            }
+        }) { IsBackground = true };
+        sta.SetApartmentState(ApartmentState.STA);
+        sta.Start();
+        return completed.Task;
+    }
+
+    [DllImport("user32.dll", ExactSpelling = true, SetLastError = true)]
+    private static extern int GetWindowLongW(nint window, int index);
 
     private static Task TestOverlayWindowAsync()
     {
