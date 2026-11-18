@@ -208,6 +208,21 @@ internal static class Program
         Require(OverlayPlacement.Place(nearComposer, chatViewport, 162, 42, 11, 11)
             is { Side: "above", Bounds.Bottom: <= 210, Bounds.Right: <= 400 },
             "conversation viewport beats spare desktop space near the composer");
+
+        var desktopTranscript = new ScreenRectangle(1041, 296, 1229, 899);
+        var archivedEditor = new ScreenRectangle(1127, -6668, 1057, 6322);
+        var visibleEditor = new ScreenRectangle(1165, 1111, 831, 54);
+        Require(!UiaSelection.IsVisibleComposerEdit(archivedEditor, desktopTranscript, offscreen: false)
+            && !UiaSelection.IsVisibleComposerEdit(visibleEditor, desktopTranscript, offscreen: true)
+            && UiaSelection.IsVisibleComposerEdit(visibleEditor, desktopTranscript, offscreen: false),
+            "historical and offscreen editors do not qualify as the visible composer");
+        ScreenRectangle aboveComposer = UiaSelection.ClipToComposer(desktopTranscript, visibleEditor, 24);
+        var lowerSelection = new ScreenRectangle(1400, 1080, 120, 7);
+        Require(aboveComposer.Bottom == 1087 && !aboveComposer.Intersects(visibleEditor)
+            && OverlayPlacement.Place(lowerSelection, desktopTranscript, 99, 45, 11, 11) is { } unclipped
+            && unclipped.Bounds.Intersects(visibleEditor)
+            && OverlayPlacement.Place(lowerSelection, aboveComposer, 99, 45, 11, 11) is { Bounds.Bottom: <= 1087 },
+            "visible composer reduces the overlay placement area at the bottom of a long chat");
         foreach (var anchorCase in new[] { first, new ScreenRectangle(402, 80, 80, 24), new ScreenRectangle(20, 80, 470, 24) })
         {
             Require(OverlayPlacement.Place(anchorCase, work, 162, 42, 11, 11) is { } placed

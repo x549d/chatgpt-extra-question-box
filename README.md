@@ -20,7 +20,7 @@
 | Phase 0 | 可行性调查 | 完成 | `733bdfb` · [PHASE-0-FEASIBILITY.md](docs/PHASE-0-FEASIBILITY.md) |
 | Phase 1 | 真实选区捕获 | 完成 | `f606855` · [PHASE-1-SELECTION-ACCEPTANCE.md](docs/PHASE-1-SELECTION-ACCEPTANCE.md) |
 | Phase 2 | 选区旁浮动按钮（只验收了 Codex 模式） | 完成 | `53bf7c3` · [PHASE-2-OVERLAY-ACCEPTANCE.md](docs/PHASE-2-OVERLAY-ACCEPTANCE.md) |
-| **Phase 2R** | **Codex Chat 模式支持 + 常驻 + 插件化** | **PARTIAL，冷启动已观察到，待真实选区和点击复测** | [PHASE-2R-CHAT-ACCEPTANCE.md](docs/PHASE-2R-CHAT-ACCEPTANCE.md) |
+| **Phase 2R** | **Codex Chat 模式支持 + 常驻 + 插件化** | **PARTIAL，部署与回归已复核，待完成新版桌面验收** | [PHASE-2R-CHAT-ACCEPTANCE.md](docs/PHASE-2R-CHAT-ACCEPTANCE.md) |
 | Phase 3 | 按钮 → 小型提问框（自动引用原文、自动聚焦） | 未开始 | — |
 | Phase 4 | 接入本机 ChatGPT 登录 / App Server | 未开始 | — |
 | Phase 5 | 流式输出、连续追问、多旁注、上下文隔离 | 未开始 | — |
@@ -34,14 +34,14 @@
 - **Chat 模式失效的原因**：`53bf7c3` 先判断模式再读选区。模式判断只认名字为 `切换模式，当前模式：Codex` 的按钮；Chat 模式下按钮名是 `…当前模式：ChatGPT`，于是每次都直接返回 `codex-mode-unconfirmed`。而且找不到按钮时，每 180 ms 就扫描一次整棵 UI 树。
 - **185 秒后自动退出**：这是 Phase 2 验收命令带的 `--seconds 185` 造成的。另外，正式产品所需的单实例、自启动和崩溃恢复当时也都没有。
 
-### 已实现（自测 48/48 PASS）
+### 已实现（自测 50/50 PASS）
 
 | 项 | 实现 |
 | --- | --- |
 | 只支持 Chat | 模式按钮名为 `…当前模式：ChatGPT` 才工作；Codex 模式记为 `mode_codex` 并隐藏。按钮元素会缓存，每次采样只读取一次名字，找不到时最多每 3 秒重新查找一次 |
 | 角色识别 | 检查选区所属的正文容器、滚动区和桌面主内容层级，再按 UIA 文本范围寻找最近的前置隐藏角色标题。选区必须留在同一条消息内。遇到 Edit 判为 Composer，遇到导航区判为 Sidebar；Assistant 显示，User / Composer / Sidebar / Unknown 隐藏 |
 | 性能 | 采样路径上没有全树搜索。父级属性用 CacheRequest 批量读取；输入框元素会缓存，失效后按节流重新查找 |
-| 可视区 | 以消息外层可滚动容器为可视区，并扣掉浮在底部的输入框区域 |
+| 可视区 | 以消息外层可滚动容器为可视区，跳过离屏编辑器，并扣掉当前输入框区域 |
 | 按钮定位 | 右侧（与首行顶部对齐）→ 左侧 → 下方 → 上方；过滤 1×2 等异常矩形；不盖住选区，不超出可视区和屏幕工作区 |
 | 按钮外观 | 小胶囊「提问」（矢量气泡图标）；不抢焦点（`WS_EX_NOACTIVATE` / `MA_NOACTIVATE`） |
 | 常驻 | `--companion`：每个用户会话只有一个实例（命名 Mutex）。监控循环出错会原地重建；浮层线程的未处理异常只会隐藏按钮。`--stop` 退出；Codex 关闭 60 秒后自动退出 |
@@ -55,7 +55,7 @@
 
 ### 真实桌面进度
 
-已观察到冷启动恢复已有会话时，`SessionStart:resume` 自动启动后台。真实 UIA 诊断复现了旧角色规则的误判，修复版用真实 Chat 可见文本范围复核了助手与用户角色。待复测修复版的物理拖选、按钮定位、用户消息排除以及实鼠点击后的前台状态。各项状态和证据见 [验收报告](docs/PHASE-2R-CHAT-ACCEPTANCE.md)。
+本机插件 `0.2.0` 已部署本轮修复，并核对程序哈希、Hook 配置、后台状态和单实例行为。真实 Chat 在 `ad39503` 上记录了助手选区、浮层显示和点击时保留前台。最终版修复了长对话的输入框边界，并通过真实窗口的只读几何复验。新版冷启动和实鼠复测的步骤及证据见 [验收报告](docs/PHASE-2R-CHAT-ACCEPTANCE.md)。
 
 ### 已知风险
 

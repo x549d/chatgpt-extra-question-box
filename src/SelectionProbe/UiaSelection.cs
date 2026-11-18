@@ -303,48 +303,58 @@ internal sealed partial class UiaSelection(WindowIdentity window) : IDisposable
     {
         if (!viewport.IsValid)
             return viewport;
-        ScreenRectangle editor = ComposerBounds();
-        if (!editor.IsValid || editor.Right <= viewport.X || editor.X >= viewport.Right
-            || editor.Y <= viewport.Y || editor.Y >= viewport.Bottom)
-            return viewport;
+        ScreenRectangle editor = ComposerBounds(viewport);
         double padding = 16 * NativeWindows.Geometry(window, []).Dpi / 96.0;
+        return ClipToComposer(viewport, editor, padding);
+    }
+
+    internal static ScreenRectangle ClipToComposer(ScreenRectangle viewport, ScreenRectangle editor, double padding)
+    {
+        if (!editor.Intersects(viewport))
+            return viewport;
         double bottom = Math.Max(viewport.Y, editor.Y - padding);
         return new ScreenRectangle(viewport.X, viewport.Y, viewport.Width, bottom - viewport.Y);
     }
 
-    private ScreenRectangle ComposerBounds()
+    internal static bool IsVisibleComposerEdit(ScreenRectangle editor, ScreenRectangle viewport, bool offscreen) =>
+        !offscreen && editor.Intersects(viewport);
+
+    private ScreenRectangle ComposerBounds(ScreenRectangle viewport)
     {
         if (composer is not null)
         {
             try
             {
-                ScreenRectangle bounds = ToScreen(composer.Current.BoundingRectangle);
-                if (bounds.IsValid)
+                var info = composer.Current;
+                ScreenRectangle bounds = ToScreen(info.BoundingRectangle);
+                if (IsVisibleComposerEdit(bounds, viewport, info.IsOffscreen))
                     return bounds;
             }
             catch (ElementNotAvailableException)
             {
             }
             composer = null;
+            nextComposerDiscovery = 0;
         }
         if (Environment.TickCount64 < nextComposerDiscovery)
             return default;
         nextComposerDiscovery = Environment.TickCount64 + (long)ComposerRediscovery.TotalMilliseconds;
         AutomationElement? best = null;
         ScreenRectangle bestBounds = default;
+        bool bestIsProseMirror = false;
         foreach (AutomationElement edit in document!.FindAll(TreeScope.Descendants, EditCondition))
         {
             var info = edit.Current;
             ScreenRectangle bounds = ToScreen(info.BoundingRectangle);
-            if (!bounds.IsValid)
+            if (!IsVisibleComposerEdit(bounds, viewport, info.IsOffscreen))
                 continue;
             bool prose = HasClass(info.ClassName, "ProseMirror");
-            if (best is null || prose || bounds.Bottom > bestBounds.Bottom)
+            if (best is null || (prose && !bestIsProseMirror)
+                || (prose == bestIsProseMirror && bounds.Bottom > bestBounds.Bottom))
             {
                 best = edit;
                 bestBounds = bounds;
-                if (prose)
-                    break;
+                bestIsProseMirror = prose;
             }
         }
         composer = best;
