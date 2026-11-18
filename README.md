@@ -20,7 +20,7 @@
 | Phase 0 | 可行性调查 | 完成 | `733bdfb` · [PHASE-0-FEASIBILITY.md](docs/PHASE-0-FEASIBILITY.md) |
 | Phase 1 | 真实选区捕获 | 完成 | `f606855` · [PHASE-1-SELECTION-ACCEPTANCE.md](docs/PHASE-1-SELECTION-ACCEPTANCE.md) |
 | Phase 2 | 选区旁浮动按钮（只验收了 Codex 模式） | 完成 | `53bf7c3` · [PHASE-2-OVERLAY-ACCEPTANCE.md](docs/PHASE-2-OVERLAY-ACCEPTANCE.md) |
-| **Phase 2R** | **Codex Chat 模式支持 + 常驻 + 插件化** | **PARTIAL，部署与回归已复核，待完成新版桌面验收** | [PHASE-2R-CHAT-ACCEPTANCE.md](docs/PHASE-2R-CHAT-ACCEPTANCE.md) |
+| **Phase 2R** | **Codex Chat 模式支持 + 常驻 + 插件化** | **PARTIAL，实际交互已验收，已有 Chat 冷启动未触发后台** | [PHASE-2R-CHAT-ACCEPTANCE.md](docs/PHASE-2R-CHAT-ACCEPTANCE.md) |
 | Phase 3 | 按钮 → 小型提问框（自动引用原文、自动聚焦） | 未开始 | — |
 | Phase 4 | 接入本机 ChatGPT 登录 / App Server | 未开始 | — |
 | Phase 5 | 流式输出、连续追问、多旁注、上下文隔离 | 未开始 | — |
@@ -55,7 +55,7 @@
 
 ### 真实桌面进度
 
-本机插件 `0.2.0` 已部署 `56b0ecc`。真实 Chat 验证助手选区触发「提问」、用户选区排除、选区离屏隐藏，以及点击事件到达时 Codex 保持前台。按钮位于高亮右侧 11 像素，且处于扣除输入框后的正文视口内。新版冷启动、输入框选区和物理鼠标来源仍需确认。各项步骤和脱敏证据见 [验收报告](docs/PHASE-2R-CHAT-ACCEPTANCE.md)。
+本机插件 `0.2.0` 已部署 `56b0ecc`，并重新核对与 Release 构建一致。真实 Chat 验证助手选区触发「提问」、用户及输入框选区排除和选区离屏隐藏。用户已确认物理鼠标点击、Codex 保持前台且未误向主 Chat 发送消息。桌面客户端完全退出并重开后，只打开已有 Chat 未观察到 `SessionStart` 启动后台。手动执行同一启动脚本已恢复后台。各项步骤和脱敏证据见 [验收报告](docs/PHASE-2R-CHAT-ACCEPTANCE.md)。
 
 ### 已知风险
 
