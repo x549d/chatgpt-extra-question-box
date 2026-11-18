@@ -119,6 +119,58 @@ internal sealed class HistoryDatabase : IDisposable
         }
     }
 
+    // This raw operation deliberately bypasses constructor migrations. SQLite's backup
+    // transaction also supports rollback into an existing DB without copying stale WAL files.
+    public static int BackupFile(string source, string destination)
+    {
+        source = Path.GetFullPath(source); destination = Path.GetFullPath(destination);
+        if (string.Equals(source, destination, StringComparison.OrdinalIgnoreCase)) throw new ArgumentException("Backup must use a different path.");
+        Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+        nint input = 0, output = 0;
+        try
+        {
+            Check(Native.sqlite3_open_v2(source, out input, 1 | 0x10000, 0));
+            Native.sqlite3_busy_timeout(input, 1200);
+            if (ReadScalar(input, "PRAGMA quick_check") != "ok") throw new InvalidDataException("Backup source integrity check failed; original files preserved.");
+            int version = int.Parse(ReadScalar(input, "PRAGMA user_version"));
+            Check(Native.sqlite3_open_v2(destination, out output, 6 | 0x10000, 0));
+            Native.sqlite3_busy_timeout(output, 1200);
+            nint backup = Native.sqlite3_backup_init(output, "main", input, "main");
+            if (backup == 0) throw new IOException("Cannot start SQLite backup.");
+            int result = 0;
+            try
+            {
+                long deadline = Environment.TickCount64 + 5000;
+                do
+                {
+                    result = Native.sqlite3_backup_step(backup, -1);
+                    if (result is not (5 or 6)) break;
+                    Thread.Sleep(50);
+                } while (Environment.TickCount64 < deadline);
+            }
+            finally { Check(Native.sqlite3_backup_finish(backup)); }
+            if (result != 101) Check(result);
+            if (ReadScalar(output, "PRAGMA quick_check") != "ok" || int.Parse(ReadScalar(output, "PRAGMA user_version")) != version)
+                throw new InvalidDataException("Backup verification failed; source preserved.");
+            return version;
+        }
+        finally
+        {
+            if (output != 0) Native.sqlite3_close_v2(output);
+            if (input != 0) Native.sqlite3_close_v2(input);
+        }
+    }
+    private static string ReadScalar(nint connection, string sql)
+    {
+        Check(Native.sqlite3_prepare_v2(connection, sql, -1, out var statement, 0));
+        try
+        {
+            int code = Native.sqlite3_step(statement); CheckDone(code);
+            return Marshal.PtrToStringUTF8(Native.sqlite3_column_text(statement, 0)) ?? "";
+        }
+        finally { Native.sqlite3_finalize(statement); }
+    }
+
     internal void Transaction(Action action)
     {
         lock (gate)

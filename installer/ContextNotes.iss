@@ -23,18 +23,24 @@ OutputDir=..\artifacts
 UninstallDisplayIcon={app}\versions\{#ProductVersion}\codex-plugin\plugins\context-notes\bin\SelectionProbe.exe
 CloseApplications=no
 
+[Tasks]
+Name: "startmenu"; Description: "Create Start Menu shortcuts"; Flags: unchecked
+
 [Files]
 Source: "{#PayloadDir}\*"; DestDir: "{app}\versions\{#ProductVersion}"; Flags: recursesubdirs createallsubdirs ignoreversion
 
 [Icons]
-Name: "{group}\Annotation History"; Filename: "{app}\versions\{#ProductVersion}\codex-plugin\plugins\context-notes\bin\SelectionProbe.exe"; Parameters: "--show-history"
-Name: "{group}\User Guide"; Filename: "{app}\versions\{#ProductVersion}\docs\USER-GUIDE.md"
-Name: "{group}\Uninstall"; Filename: "{uninstallexe}"
+Name: "{group}\Annotation History"; Filename: "{app}\versions\{#ProductVersion}\codex-plugin\plugins\context-notes\bin\SelectionProbe.exe"; Parameters: "--show-history"; Tasks: startmenu
+Name: "{group}\User Guide"; Filename: "{app}\versions\{#ProductVersion}\docs\USER-GUIDE.md"; Tasks: startmenu
+Name: "{group}\Uninstall"; Filename: "{uninstallexe}"; Tasks: startmenu
+
+[UninstallDelete]
+Type: files; Name: "{app}\installation-context.ini"
 
 [Code]
 var KeepHistory: Boolean;
 function InitializeSetup(): Boolean;
-var Index, ResultCode: Integer; FoundRuntime: Boolean; Captured: TExecOutput;
+var Index, ResultCode: Integer; FoundRuntime, Existed: Boolean; Captured: TExecOutput; Key: String;
 begin
   FoundRuntime := False;
   if ExecAndCaptureOutput(ExpandConstant('{pf64}\dotnet\dotnet.exe'), '--list-runtimes', '', SW_HIDE, ewWaitUntilTerminated, ResultCode, Captured) then
@@ -43,12 +49,24 @@ begin
         if Pos('Microsoft.WindowsDesktop.App 10.', Captured.StdOut[Index]) = 1 then FoundRuntime := True;
   Result := FoundRuntime;
   if not Result then SuppressibleMsgBox('Install .NET 10 Windows Desktop Runtime x64 before running this installer. Codex Desktop will also be checked before plugin deployment.', mbError, MB_OK, IDOK);
+  if not Result then exit;
+  Key := 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{72EC0AA1-761D-4894-B2B8-A1FD53C06690}_is1';
+  Existed := RegKeyExists(HKCU64, Key);
+  Result := RegWriteStringValue(HKCU64, Key + '\ContextNotesPreflight', 'Probe', 'metadata-only');
+  RegDeleteValue(HKCU64, Key + '\ContextNotesPreflight', 'Probe');
+  RegDeleteKeyIfEmpty(HKCU64, Key + '\ContextNotesPreflight');
+  if not Existed then RegDeleteKeyIfEmpty(HKCU64, Key);
+  if not Result then begin
+    Log('Context Notes per-user uninstall registry preflight failed before file deployment. No elevation or ACL change attempted.');
+    SuppressibleMsgBox('This execution session cannot write the current-user uninstall registration. No program files were deployed. Run from your normal Windows desktop or use the portable package. Administrator permission is not required by this application.', mbError, MB_OK, IDOK);
+  end;
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var ResultCode: Integer; Binary: String;
 begin
   Result := '';
+  if ExpandConstant('{param:TESTROOT|}') <> '' then exit;
   Binary := ExpandConstant('{app}\versions\{#ProductVersion}\codex-plugin\plugins\context-notes\bin\SelectionProbe.exe');
   if FileExists(Binary) then begin
     Exec(Binary, '--stop-watcher', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
@@ -58,19 +76,24 @@ begin
 end;
 
 function RunManager(Action: String; Extra: String): Boolean;
-var ResultCode: Integer; Params: String;
+var ResultCode: Integer; Params, TestRoot: String;
 begin
   Params := '-NoProfile -ExecutionPolicy Bypass -File "' + ExpandConstant('{app}\versions\{#ProductVersion}\scripts\Manage-Installation.ps1') + '" -Action ' + Action + ' -PayloadRoot "' + ExpandConstant('{app}\versions\{#ProductVersion}') + '" ' + Extra;
-  if ExpandConstant('{param:TESTROOT|}') <> '' then
-    Params := Params + ' -SkipLaunch -ProfileRoot "' + ExpandConstant('{param:TESTROOT}') + '\profile" -DataRoot "' + ExpandConstant('{param:TESTROOT}') + '\data" -StartupRoot "' + ExpandConstant('{param:TESTROOT}') + '\startup"';
+  TestRoot := ExpandConstant('{param:TESTROOT|}');
+  if TestRoot = '' then TestRoot := GetIniString('Installation', 'TestRoot', '', ExpandConstant('{app}\installation-context.ini'));
+  if TestRoot <> '' then
+    Params := Params + ' -SkipLaunch -ProfileRoot "' + TestRoot + '\profile" -DataRoot "' + TestRoot + '\data" -StartupRoot "' + TestRoot + '\startup"';
   Result := Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), Params, '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
-  if CurStep = ssPostInstall then
+  if CurStep = ssPostInstall then begin
+    if ExpandConstant('{param:TESTROOT|}') <> '' then
+      SetIniString('Installation', 'TestRoot', ExpandConstant('{param:TESTROOT}'), ExpandConstant('{app}\installation-context.ini'));
     if not RunManager('Install', '') then
       RaiseException('Plugin installation failed. The deployment manager attempted to restore the previous registration and history. See the troubleshooting guide.');
+  end;
 end;
 
 function InitializeUninstall(): Boolean;

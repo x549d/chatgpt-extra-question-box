@@ -165,5 +165,25 @@ public sealed class Phase5HistoryTests : IDisposable
         var equivalentStart = DateTimeOffset.Parse("2000-01-01T08:00:00+08:00");
         Assert.Single(db.Search("account-a", since: equivalentStart, until: equivalentStart.AddHours(1)));
     }
+    [Fact] public void InstallationBackupPreservesOldSchemaWithoutMigratingSource()
+    {
+        using var db = new HistoryDatabase(DbPath); db.Save(HistoryRecord.Capture(Item()));
+        db.Execute("DROP INDEX annotations_scope_date"); db.Execute("DROP INDEX messages_annotation");
+        foreach (string name in new[] { "title", "archived", "deleted" }) db.Execute("ALTER TABLE annotations DROP COLUMN " + name);
+        db.Execute("PRAGMA user_version=1");
+        string backup = Path.Combine(root, "before-migration.db");
+        Assert.Equal(1, HistoryDatabase.BackupFile(DbPath, backup));
+        Assert.Equal("1", db.Query("PRAGMA user_version")[0][0]);
+        using var restored = new HistoryDatabase(backup); Assert.Single(restored.Search("account-a"));
+    }
+    [Fact] public void OnlineBackupIncludesCommittedWalAndCanRestoreExistingDestination()
+    {
+        using var db = new HistoryDatabase(DbPath); var item = Item(); item.AddUserMessage("committed WAL content"); db.Save(HistoryRecord.Capture(item));
+        string backup = Path.Combine(root, "consistent.db"); Assert.Equal(2, HistoryDatabase.BackupFile(DbPath, backup));
+        using (var snapshot = new HistoryDatabase(backup)) Assert.Equal("committed WAL content", snapshot.Search("account-a")[0].Messages[0].Text);
+        db.Save(HistoryRecord.Capture(Item("post-upgrade"))); Assert.Equal(2, db.Search("account-a").Count);
+        Assert.Equal(2, HistoryDatabase.BackupFile(backup, DbPath));
+        Assert.Single(db.Search("account-a")); Assert.Equal("ok", db.Query("PRAGMA integrity_check")[0][0]);
+    }
     public void Dispose() { if (Directory.Exists(root)) Directory.Delete(root, true); }
 }

@@ -36,6 +36,11 @@ internal static class Program
             }
             if (args is ["--show-history"])
                 return Companion.ShowHistory();
+            if (args is ["--history-backup", var sourceDatabase, var targetDatabase])
+            {
+                int schema = HistoryDatabase.BackupFile(sourceDatabase, targetDatabase);
+                Console.WriteLine($"PASS history_backup integrity=ok schema={schema}"); return 0;
+            }
             if (args is ["--phase5-live-prepare"] or ["--phase5-live-resume"])
                 return Phase5Diagnostics.LiveAsync(args[0] == "--phase5-live-resume").GetAwaiter().GetResult();
             if (args.Length == 0)

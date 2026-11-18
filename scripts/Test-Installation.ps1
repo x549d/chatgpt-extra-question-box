@@ -24,6 +24,12 @@ function Has-HistoryMarker { $value = & python -c 'import sqlite3,sys; c=sqlite3
 & $manager -Action Install -PayloadRoot $PayloadRoot @common
 Require (Has-HistoryMarker) 'idempotent reinstall preserves database'
 
+$tampered = Join-Path $testRoot 'tampered-payload'; Copy-Item -LiteralPath $PayloadRoot -Destination $tampered -Recurse
+Add-Content -LiteralPath (Join-Path $tampered 'README.md') -Value 'synthetic tamper test'
+$tamperRejected = $false
+try { & $manager -Action Install -PayloadRoot $tampered @common } catch { $tamperRejected = $true }
+Require ($tamperRejected -and (Has-HistoryMarker)) 'tampered payload rejected before database or registration mutation'
+
 $upgraded = Join-Path $testRoot 'upgrade-payload'; Copy-Item -LiteralPath $PayloadRoot -Destination $upgraded -Recurse
 $manifestPath = Join-Path $upgraded 'codex-plugin\plugins\context-notes\.codex-plugin\plugin.json'
 $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
@@ -38,6 +44,16 @@ $state = Get-Content -LiteralPath (Join-Path $profile 'context-notes-installatio
 Require ($state.version -eq '0.3.0' -and (Has-HistoryMarker)) 'failed upgrade restores registration state and history'
 $schema = & python -c 'import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); print(c.execute("PRAGMA user_version").fetchone()[0]); c.close()' $database
 Require ($schema -eq '1') 'failed upgrade restores pre-migration schema'
+$retained = $null
+try { & $manager -Action Install -PayloadRoot $upgraded -InjectFailure -InjectRollbackFailure @common }
+catch { $retained = $_.Exception.Data['RecoveryBackupPath'] }
+$retainedDatabase = if ($retained) { Join-Path $retained 'history-before.db' } else { '' }
+Require ($retained -and (Test-Path -LiteralPath $retainedDatabase)) 'rollback failure preserves recovery database'
+$helperDll = Join-Path $PayloadRoot 'codex-plugin\plugins\context-notes\bin\SelectionProbe.dll'
+& dotnet $helperDll --history-backup $retainedDatabase $database
+if ($LASTEXITCODE -ne 0) { throw 'Synthetic recovery restore failed.' }
+$schema = & python -c 'import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); print(c.execute("PRAGMA user_version").fetchone()[0]); c.close()' $database
+Require ($schema -eq '1' -and (Has-HistoryMarker)) 'retained recovery database restores original schema and history'
 & $manager -Action Install -PayloadRoot $upgraded @common
 $state = Get-Content -LiteralPath (Join-Path $profile 'context-notes-installation.json') -Raw | ConvertFrom-Json
 Require ($state.version -eq '0.3.1') 'successful version upgrade'

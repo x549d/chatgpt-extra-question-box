@@ -8,7 +8,8 @@ param(
     [string]$CodexPath,
     [switch]$SkipLaunch,
     [switch]$RemoveHistory,
-    [switch]$InjectFailure
+    [switch]$InjectFailure,
+    [switch]$InjectRollbackFailure
 )
 $ErrorActionPreference = 'Stop'
 $PayloadRoot = [IO.Path]::GetFullPath($PayloadRoot)
@@ -28,6 +29,12 @@ if (!$CodexPath) { throw 'Codex Desktop / CLI was not found. Install Codex Deskt
 if ([Environment]::OSVersion.Version.Major -lt 10) { throw 'Windows 10 or 11 is required.' }
 if (!(@(& dotnet --list-runtimes) -match '^Microsoft.WindowsDesktop.App 10\.')) { throw '.NET 10 Windows Desktop Runtime x64 is required.' }
 if (!(Test-Path -LiteralPath $dll)) { throw 'Published application payload is missing.' }
+$productionData = [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'ContextNotesNative\data'))
+if ($InjectRollbackFailure -and (!$SkipLaunch -or $DataRoot -eq $productionData)) { throw 'Rollback fault injection requires isolated test data and SkipLaunch.' }
+if ($SkipLaunch -and $DataRoot -eq $productionData -and $Action -ne 'Check') {
+    [void](& dotnet $dll --status 2>&1)
+    if ($LASTEXITCODE -eq 0) { throw 'Stop the production Companion before a deployment using SkipLaunch. No files were changed.' }
+}
 
 function Invoke-Codex([string[]]$Arguments) {
     $result = & $CodexPath @Arguments 2>&1 | Out-String
@@ -107,11 +114,14 @@ try {
     Stop-OwnedProcesses
     $rollback = Join-Path ([IO.Path]::GetTempPath()) ('context-notes-rollback-' + [Guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $rollback -Force | Out-Null
-    $hadData = Test-Path -LiteralPath $DataRoot
+    $rollbackSafeToRemove = $false
+    $database = Join-Path $DataRoot 'history.db'
+    $hadDatabase = Test-Path -LiteralPath $database
+    $databaseBackup = Join-Path $rollback 'history-before.db'
     $hadShortcut = Test-Path -LiteralPath $shortcut
     $hadState = Test-Path -LiteralPath $stateFile
     $hadCache = Test-Path -LiteralPath $cacheRoot
-    if ($hadData) { Copy-Item -LiteralPath $DataRoot -Destination (Join-Path $rollback 'data') -Recurse }
+    if ($hadDatabase) { [void](Invoke-Helper @('--history-backup',$database,$databaseBackup)) }
     if ($hadCache) { Copy-Item -LiteralPath $cacheRoot -Destination (Join-Path $rollback 'cache') -Recurse }
     if (Test-Path -LiteralPath $shortcut) { Copy-Item -LiteralPath $shortcut -Destination (Join-Path $rollback 'startup.lnk') }
     if (Test-Path -LiteralPath $stateFile) { Copy-Item -LiteralPath $stateFile -Destination (Join-Path $rollback 'state.json') }
@@ -122,6 +132,14 @@ try {
         if (!$previous -or $changedSource) { [void](Invoke-Codex @('plugin','marketplace','add',$marketplace)) }
         [void](Invoke-Codex @('plugin','add','context-notes@context-notes-native','--json'))
         $cachedPlugin = Join-Path $cacheRoot $manifest.version
+        # Codex may reuse the same version cache. A verified preview rebuild still
+        # needs fresh files; all owned processes were stopped above for this path.
+        foreach ($file in Get-ChildItem -LiteralPath $plugin -Recurse -File -Force) {
+            $relative = $file.FullName.Substring($plugin.Length).TrimStart('\')
+            $dest = Assert-Child (Join-Path $cachedPlugin $relative) $cacheRoot
+            New-Item -ItemType Directory -Path (Split-Path -Parent $dest) -Force | Out-Null
+            Copy-Item -LiteralPath $file.FullName -Destination $dest -Force
+        }
         foreach ($file in Get-ChildItem -LiteralPath $plugin -Recurse -File) {
             $relative = $file.FullName.Substring($plugin.Length).TrimStart('\'); $dest = Join-Path $cachedPlugin $relative
             if (!(Test-Path -LiteralPath $dest) -or (Get-FileHash -LiteralPath $file.FullName).Hash -ne (Get-FileHash -LiteralPath $dest).Hash) { throw 'Deployed plugin hash mismatch.' }
@@ -136,15 +154,18 @@ try {
             [void](Invoke-Helper @('--relaunch-companion'))
         }
         @{version=$manifest.version;marketplace=$marketplace;cache=$cachedPlugin} | ConvertTo-Json | Set-Content -LiteralPath $stateFile -Encoding UTF8
+        $rollbackSafeToRemove = $true
         Write-Output ('PASS installation version=' + $manifest.version + ' hashes_verified=true hook_manifest_verified=true desktop_selection_requires_ui_check=true')
     } catch {
         $failure = $_
+        try {
         if ($changedSource -or !$previous) {
             try { [void](Invoke-Codex @('plugin','remove','context-notes@context-notes-native','--json')) } catch { }
             try { [void](Invoke-Codex @('plugin','marketplace','remove','context-notes-native')) } catch { }
             if ($previous) { [void](Invoke-Codex @('plugin','marketplace','add',$previous.root)); [void](Invoke-Codex @('plugin','add','context-notes@context-notes-native','--json')) }
         }
-        if ($hadData) { Copy-Item -Path (Join-Path $rollback 'data\*') -Destination $DataRoot -Force }
+        if ($InjectRollbackFailure) { throw 'Injected rollback failure in isolated installation test.' }
+        if ($hadDatabase) { [void](Invoke-Helper @('--history-backup',$databaseBackup,$database)) }
         if ($hadCache) {
             New-Item -ItemType Directory -Path $cacheRoot -Force | Out-Null
             Copy-Item -Path (Join-Path $rollback 'cache\*') -Destination $cacheRoot -Recurse -Force
@@ -154,9 +175,16 @@ try {
         if (Test-Path -LiteralPath (Join-Path $rollback 'startup.lnk')) { Copy-Item -LiteralPath (Join-Path $rollback 'startup.lnk') -Destination $shortcut -Force }
         if (Test-Path -LiteralPath (Join-Path $rollback 'state.json')) { Copy-Item -LiteralPath (Join-Path $rollback 'state.json') -Destination $stateFile -Force }
         if (!$SkipLaunch -and $previous) { Start-Process -FilePath (Join-Path $previous.root 'plugins\context-notes\bin\SelectionProbe.exe') -ArgumentList '--launch-watcher' -WindowStyle Hidden }
+        $rollbackSafeToRemove = $true
+        } catch {
+            $recoveryError = [IO.IOException]::new("Installation rollback failed. Recovery backup preserved at $rollback", $_.Exception)
+            $recoveryError.Data['RecoveryBackupPath'] = $rollback
+            throw $recoveryError
+        }
         throw $failure
     } finally {
         $ownedRollback = Assert-Child $rollback ([IO.Path]::GetTempPath())
-        if (Test-Path -LiteralPath $ownedRollback) { Remove-Item -LiteralPath $ownedRollback -Recurse -Force }
+        if ($rollbackSafeToRemove -and (Test-Path -LiteralPath $ownedRollback)) { Remove-Item -LiteralPath $ownedRollback -Recurse -Force }
+        elseif (Test-Path -LiteralPath $ownedRollback) { Write-Warning "Recovery backup retained: $ownedRollback" }
     }
 } finally { $env:CODEX_HOME = $previousCodexHome }
