@@ -38,7 +38,7 @@ internal static class DesktopStartup
                 foregroundPid = foreground.ProcessId;
                 verified = NativeWindows.IsCodex(foreground);
             }
-            if (verified && gate.ShouldLaunch(foregroundPid, Environment.TickCount64))
+            if (verified && gate.ShouldLaunch(foregroundPid, Environment.TickCount64, Companion.IsReady()))
             {
                 int result = Companion.LaunchFromDesktop();
                 gate.Record(foregroundPid, result == 0, Environment.TickCount64);
@@ -108,7 +108,8 @@ internal sealed class DesktopStartupGate
     private long retryAt;
     private bool started;
 
-    public bool ShouldLaunch(uint pid, long now) => pid != 0 && (pid != lastPid || (!started && now >= retryAt));
+    public bool ShouldLaunch(uint pid, long now, bool companionReady = true) =>
+        pid != 0 && (pid != lastPid || ((!started || !companionReady) && now >= retryAt));
 
     public void Record(uint pid, bool success, long now)
     {

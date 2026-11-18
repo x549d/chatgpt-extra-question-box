@@ -223,7 +223,7 @@ internal static class Companion
         return 1;
     }
 
-    private static bool IsReady()
+    internal static bool IsReady()
     {
         if (!EventWaitHandle.TryOpenExisting(SessionName + ".stop", out EventWaitHandle? stop))
             return false;
