@@ -4,6 +4,7 @@ using System.IO.Pipes;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Windows;
 using ContextNotes.SelectionProbe;
 using Xunit;
 
@@ -54,10 +55,176 @@ internal sealed class DuplexPipeTestHarness : IDisposable
     }
 }
 
+/// <summary>
+/// Programmable in-memory fake Codex App Server speaking the real stdio JSON-RPC protocol over pipes.
+/// Supports multiple threads, streaming deltas, turn interruption, account switching, and simulated crashes.
+/// </summary>
+internal sealed class FakeCodexAppServer : IDisposable
+{
+    private readonly DuplexPipeTestHarness harness = new();
+    private readonly SemaphoreSlim writeGate = new(1, 1);
+    private readonly CancellationTokenSource cts = new();
+    private readonly Task loopTask;
+    private int nextThreadNum;
+    private int nextTurnNum;
+
+    public FakeCodexAppServer()
+    {
+        loopTask = Task.Run(ServerLoopAsync);
+    }
+
+    public IAppServerTransport Transport => harness.Transport;
+    public string UserId { get; set; } = "user-plus-001";
+    public string Email { get; set; } = "dev@example.com";
+    public string PlanType { get; set; } = "plus";
+    public bool LoggedIn { get; set; } = true;
+    public string DefaultModel { get; set; } = "gpt-6.2-sol";
+
+    public ConcurrentQueue<(string ThreadId, string TurnId, string InputText)> ReceivedTurns { get; } = new();
+    public ConcurrentQueue<(string ThreadId, string TurnId)> InterruptedTurns { get; } = new();
+
+    public Func<string, string, string, FakeCodexAppServer, Task>? CustomTurnHandler { get; set; }
+
+    public async Task WriteServerLineAsync(string line)
+    {
+        await writeGate.WaitAsync(cts.Token).ConfigureAwait(false);
+        try
+        {
+            await harness.ServerWriter.WriteLineAsync(line).ConfigureAwait(false);
+        }
+        finally
+        {
+            writeGate.Release();
+        }
+    }
+
+    public void SimulateCrash() => harness.CloseServer();
+
+    private async Task ServerLoopAsync()
+    {
+        try
+        {
+            while (!cts.IsCancellationRequested)
+            {
+                string? line = await harness.ServerReader.ReadLineAsync(cts.Token);
+                if (line is null)
+                    break;
+                if (string.IsNullOrWhiteSpace(line))
+                    continue;
+
+                using var doc = JsonDocument.Parse(line);
+                JsonElement root = doc.RootElement;
+                if (!root.TryGetProperty("method", out JsonElement methodProp))
+                    continue;
+                string method = methodProp.GetString()!;
+                bool hasId = root.TryGetProperty("id", out JsonElement idProp);
+                long id = hasId ? idProp.GetInt64() : 0;
+
+                switch (method)
+                {
+                    case "initialize":
+                        await WriteServerLineAsync(
+                            $$$"""{"id":{{{id}}},"result":{"codexHome":"C:\\Users\\test\\.codex","platformFamily":"windows","platformOs":"windows","userAgent":"fake-codex"}}""");
+                        break;
+
+                    case "initialized":
+                        break;
+
+                    case "account/read":
+                        if (LoggedIn)
+                        {
+                            await WriteServerLineAsync(
+                                $$$$"""{"id":{{{{id}}}},"result":{"requiresOpenaiAuth":true,"userId":"{{{{UserId}}}}","account":{"type":"chatgpt","email":"{{{{Email}}}}","planType":"{{{{PlanType}}}}","workspaceName":null}}}""");
+                        }
+                        else
+                        {
+                            await WriteServerLineAsync(
+                                $$$"""{"id":{{{id}}},"result":{"requiresOpenaiAuth":true,"userId":null,"account":null}}""");
+                        }
+                        break;
+
+                    case "model/list":
+                        await WriteServerLineAsync(
+                            $$$"""{"id":{{{id}}},"result":{"data":[{"id":"m1","model":"{{{DefaultModel}}}","displayName":"GPT-6.2 Sol","description":"Default","isDefault":true,"hidden":false,"defaultReasoningEffort":"medium","supportedReasoningEfforts":[]}]}}""");
+                        break;
+
+                    case "thread/start":
+                        string threadId = $"thread-{Interlocked.Increment(ref nextThreadNum)}";
+                        await WriteServerLineAsync(
+                            $$$$"""{"id":{{{{id}}}},"result":{"approvalPolicy":"never","approvalsReviewer":"user","cwd":"C:\\temp","model":"{{{{DefaultModel}}}}","modelProvider":"openai","sandbox":{"type":"readOnly","networkAccess":false},"thread":{"id":"{{{{threadId}}}}","ephemeral":true}}}""");
+                        break;
+
+                    case "turn/start":
+                        JsonElement p = root.GetProperty("params");
+                        string tid = p.GetProperty("threadId").GetString()!;
+                        string inputText = p.GetProperty("input")[0].GetProperty("text").GetString()!;
+                        string turnId = $"turn-{Interlocked.Increment(ref nextTurnNum)}";
+                        ReceivedTurns.Enqueue((tid, turnId, inputText));
+
+                        await WriteServerLineAsync(
+                            $$$$"""{"id":{{{{id}}}},"result":{"turn":{"id":"{{{{turnId}}}}","items":[],"status":"inProgress"}}}""");
+
+                        if (CustomTurnHandler is { } custom)
+                        {
+                            _ = Task.Run(() => custom(tid, turnId, inputText, this));
+                        }
+                        else
+                        {
+                            _ = Task.Run(async () =>
+                            {
+                                foreach (string chunk in new[] { "Reply ", $"for {tid}", $"/{turnId}" })
+                                {
+                                    await WriteServerLineAsync(
+                                        $$$"""{"method":"item/agentMessage/delta","params":{"threadId":"{{{tid}}}","turnId":"{{{turnId}}}","itemId":"item-1","delta":"{{{chunk}}}"}}""");
+                                }
+                                await WriteServerLineAsync(
+                                    $$$$"""{"method":"turn/completed","params":{"threadId":"{{{{tid}}}}","turn":{"id":"{{{{turnId}}}}","items":[],"status":"completed"}}}""");
+                            });
+                        }
+                        break;
+
+                    case "turn/interrupt":
+                        JsonElement ip = root.GetProperty("params");
+                        string itid = ip.GetProperty("threadId").GetString()!;
+                        string iturnId = ip.GetProperty("turnId").GetString()!;
+                        InterruptedTurns.Enqueue((itid, iturnId));
+                        await WriteServerLineAsync($$$"""{"id":{{{id}}},"result":{}}""");
+                        await WriteServerLineAsync(
+                            $$$$"""{"method":"turn/completed","params":{"threadId":"{{{{itid}}}}","turn":{"id":"{{{{iturnId}}}}","items":[],"status":"interrupted"}}}""");
+                        break;
+                }
+            }
+        }
+        catch (Exception)
+        {
+        }
+    }
+
+    public void Dispose()
+    {
+        cts.Cancel();
+        harness.Dispose();
+        try { loopTask.Wait(TimeSpan.FromMilliseconds(300)); } catch { }
+        cts.Dispose();
+    }
+}
+
 public sealed class Phase4AppServerTests
 {
+    private static readonly WindowIdentity TestWindow = new(new nint(0x24680), 8888);
+    private static readonly ScreenRectangle DefaultWindowBounds = new(400, 120, 1600, 1000);
+    private static readonly ScreenRectangle DefaultViewport = new(700, 200, 1150, 760);
+    private static readonly ScreenRectangle DefaultAnchor = new(840, 320, 220, 28);
+
+    private static AnnotationItem CreateAnnotation(string id, string quote = "def calculate(a, b):\n    return a + b") =>
+        new(
+            id,
+            SelectionSnapshot.FromSelection(
+                new OverlaySelection(TestWindow, DefaultWindowBounds, DefaultViewport, [DefaultAnchor], quote),
+                DefaultAnchor));
+
     [Fact]
-    public async Task Initialize_SendsClientInfoAndInitializedNotification()
+    public async Task Phase4A_Initialize_SendsClientInfoAndInitializedNotification()
     {
         using var harness = new DuplexPipeTestHarness();
         using var client = new CodexAppServerClient(harness.Transport);
@@ -87,7 +254,7 @@ public sealed class Phase4AppServerTests
     }
 
     [Fact]
-    public async Task SegmentedStdout_ReassemblesChunkedAndBatchedJsonLines()
+    public async Task Phase4A_SegmentedStdout_ReassemblesChunkedAndBatchedJsonLines()
     {
         using var harness = new DuplexPipeTestHarness();
         using var client = new CodexAppServerClient(harness.Transport);
@@ -103,7 +270,6 @@ public sealed class Phase4AppServerTests
             string? initLine = await harness.ServerReader.ReadLineAsync();
             long initId = JsonDocument.Parse(initLine!).RootElement.GetProperty("id").GetInt64();
 
-            // Write the initialize response split across 4 separate partial byte writes without newlines until the end
             string initReply = $$$"""{"id":{{{initId}}},"result":{"codexHome":"C:\\Users\\test\\.codex","platformFamily":"windows","platformOs":"windows","userAgent":"test"}}""" + "\n";
             byte[] bytes = Encoding.UTF8.GetBytes(initReply);
             int chunk = bytes.Length / 4;
@@ -116,12 +282,11 @@ public sealed class Phase4AppServerTests
             await harness.RawServerOutput.WriteAsync(bytes.AsMemory(chunk * 2));
             await harness.RawServerOutput.FlushAsync();
 
-            _ = await harness.ServerReader.ReadLineAsync(); // initialized notification
+            _ = await harness.ServerReader.ReadLineAsync(); // initialized
 
             string? reqLine = await harness.ServerReader.ReadLineAsync();
             long reqId = JsonDocument.Parse(reqLine!).RootElement.GetProperty("id").GetInt64();
 
-            // Write two notifications and one response batched in a single write
             string batched =
                 """{"method":"item/agentMessage/delta","params":{"threadId":"t1","turnId":"u1","itemId":"i1","delta":"第一段"}}""" + "\n" +
                 """{"method":"item/agentMessage/delta","params":{"threadId":"t1","turnId":"u1","itemId":"i1","delta":"第二段"}}""" + "\n" +
@@ -140,7 +305,7 @@ public sealed class Phase4AppServerTests
     }
 
     [Fact]
-    public async Task ConcurrentRequests_AreIsolatedByIdEvenWhenResponsesArriveOutOfOrder()
+    public async Task Phase4A_ConcurrentRequests_AreIsolatedByIdEvenWhenResponsesArriveOutOfOrder()
     {
         using var harness = new DuplexPipeTestHarness();
         using var client = new CodexAppServerClient(harness.Transport);
@@ -151,14 +316,13 @@ public sealed class Phase4AppServerTests
             long initId = JsonDocument.Parse(initLine!).RootElement.GetProperty("id").GetInt64();
             await harness.ServerWriter.WriteLineAsync(
                 $$$"""{"id":{{{initId}}},"result":{"codexHome":"C:\\test","platformFamily":"windows","platformOs":"windows","userAgent":"test"}}""");
-            _ = await harness.ServerReader.ReadLineAsync(); // initialized
+            _ = await harness.ServerReader.ReadLineAsync();
 
             string? first = await harness.ServerReader.ReadLineAsync();
             string? second = await harness.ServerReader.ReadLineAsync();
             long id1 = JsonDocument.Parse(first!).RootElement.GetProperty("id").GetInt64();
             long id2 = JsonDocument.Parse(second!).RootElement.GetProperty("id").GetInt64();
 
-            // Reply to id2 BEFORE id1
             await harness.ServerWriter.WriteLineAsync($$$"""{"id":{{{id2}}},"result":{"tag":"second_reply"}}""");
             await harness.ServerWriter.WriteLineAsync($$$"""{"id":{{{id1}}},"result":{"tag":"first_reply"}}""");
         });
@@ -173,7 +337,7 @@ public sealed class Phase4AppServerTests
     }
 
     [Fact]
-    public void AccountAndModelParsing_ProducesRedactedFingerprintAndDefaultModel()
+    public void Phase4A_AccountAndModelParsing_ProducesRedactedFingerprintAndDefaultModel()
     {
         using var acctDoc1 = JsonDocument.Parse("""
             {"requiresOpenaiAuth":true,"userId":"user-123","account":{"type":"chatgpt","email":"alice@example.com","planType":"plus","workspaceName":null}}
@@ -210,7 +374,7 @@ public sealed class Phase4AppServerTests
     }
 
     [Fact]
-    public async Task DisconnectAndTimeout_FailPendingRequestsCleanly()
+    public async Task Phase4A_DisconnectAndTimeout_FailPendingRequestsCleanly()
     {
         using var harness = new DuplexPipeTestHarness();
         using var client = new CodexAppServerClient(harness.Transport);
@@ -223,10 +387,7 @@ public sealed class Phase4AppServerTests
                 $$$"""{"id":{{{initId}}},"result":{"codexHome":"C:\\test","platformFamily":"windows","platformOs":"windows","userAgent":"test"}}""");
             _ = await harness.ServerReader.ReadLineAsync();
 
-            // Read first request and never reply so it times out
             _ = await harness.ServerReader.ReadLineAsync();
-
-            // Read second request and close the server stream to simulate process exit
             _ = await harness.ServerReader.ReadLineAsync();
             harness.CloseServer();
         });
@@ -239,5 +400,279 @@ public sealed class Phase4AppServerTests
             client.SendRequestAsync("disconnect/method", new JsonObject(), TimeSpan.FromSeconds(5)));
 
         await serverTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task Phase4B_And_4C_AskAsync_SendsVerbatimQuoteAndStreamsResponse()
+    {
+        using var fakeServer = new FakeCodexAppServer();
+        using var service = new AnnotationService(() => fakeServer.Transport, deltaCoalesceInterval: TimeSpan.Zero);
+
+        const string quote = "def calculate(a, b):\n    return a + b";
+        AnnotationItem item = CreateAnnotation("ann-4b", quote);
+        var observedStates = new ConcurrentQueue<AnnotationGenerationState>();
+
+        AnnotationGenerationState finalState = await service.AskAsync(
+            item,
+            "这段代码的执行过程是什么？",
+            () => observedStates.Enqueue(item.GenerationState));
+
+        Assert.Equal(AnnotationGenerationState.Completed, finalState);
+        Assert.Equal(AnnotationGenerationState.Completed, item.GenerationState);
+        Assert.Equal("thread-1", item.ThreadId);
+        Assert.Equal("Reply for thread-1/turn-1", item.StreamingResponseText);
+        Assert.Equal(2, item.Messages.Count);
+        Assert.Equal("user", item.Messages[0].Role);
+        Assert.Equal("这段代码的执行过程是什么？", item.Messages[0].Text);
+        Assert.Equal("assistant", item.Messages[1].Role);
+        Assert.Equal("Reply for thread-1/turn-1", item.Messages[1].Text);
+        Assert.True(item.Messages[1].IsCommittedHistory);
+
+        Assert.Single(fakeServer.ReceivedTurns);
+        fakeServer.ReceivedTurns.TryPeek(out var received);
+        Assert.Contains(quote, received.InputText, StringComparison.Ordinal);
+        Assert.Contains("这段代码的执行过程是什么？", received.InputText, StringComparison.Ordinal);
+        Assert.Contains(AnnotationGenerationState.Connecting, observedStates);
+        Assert.Contains(AnnotationGenerationState.Generating, observedStates);
+    }
+
+    [Fact]
+    public async Task Phase4D_FiveConsecutiveFollowUpTurns_ReuseSameThreadAndPreserveOrder()
+    {
+        using var fakeServer = new FakeCodexAppServer();
+        using var service = new AnnotationService(() => fakeServer.Transport, deltaCoalesceInterval: TimeSpan.Zero);
+
+        AnnotationItem item = CreateAnnotation("ann-followup", "class Sub(Base):\n    pass");
+        string[] questions =
+        [
+            "第1轮：这段代码为什么使用继承？",
+            "第2轮：能不能给一个实际例子？",
+            "第3轮：那组合和继承有什么区别？",
+            "第4轮：Python 多重继承的 MRO 是怎么工作的？",
+            "第5轮：总结一下何时优先使用组合。"
+        ];
+
+        for (int i = 0; i < questions.Length; i++)
+        {
+            AnnotationGenerationState state = await service.AskAsync(item, questions[i]);
+            Assert.Equal(AnnotationGenerationState.Completed, state);
+        }
+
+        Assert.Equal("thread-1", item.ThreadId);
+        Assert.Equal(10, item.Messages.Count); // 5 user + 5 assistant in exact order
+        for (int i = 0; i < 5; i++)
+        {
+            Assert.Equal("user", item.Messages[i * 2].Role);
+            Assert.Equal(questions[i], item.Messages[i * 2].Text);
+            Assert.Equal("assistant", item.Messages[i * 2 + 1].Role);
+            Assert.Equal($"Reply for thread-1/turn-{i + 1}", item.Messages[i * 2 + 1].Text);
+            Assert.True(item.Messages[i * 2 + 1].IsCommittedHistory);
+        }
+
+        // All 5 turns ran on the same thread-1
+        var turns = fakeServer.ReceivedTurns.ToArray();
+        Assert.Equal(5, turns.Length);
+        Assert.All(turns, t => Assert.Equal("thread-1", t.ThreadId));
+    }
+
+    [Fact]
+    public async Task Phase4D_ThreeConcurrentAnnotations_HaveIsolatedThreadsAndStreams()
+    {
+        using var fakeServer = new FakeCodexAppServer();
+        fakeServer.CustomTurnHandler = async (threadId, turnId, input, server) =>
+        {
+            for (int step = 1; step <= 3; step++)
+            {
+                await Task.Delay(15);
+                await server.WriteServerLineAsync(
+                    $$$"""{"method":"item/agentMessage/delta","params":{"threadId":"{{{threadId}}}","turnId":"{{{turnId}}}","itemId":"i","delta":"[{{{threadId}}}:part{{{step}}}]"}}""");
+            }
+            await server.WriteServerLineAsync(
+                $$$$"""{"method":"turn/completed","params":{"threadId":"{{{{threadId}}}}","turn":{"id":"{{{{turnId}}}}","items":[],"status":"completed"}}}""");
+        };
+
+        using var service = new AnnotationService(() => fakeServer.Transport, deltaCoalesceInterval: TimeSpan.Zero);
+        AnnotationItem itemA = CreateAnnotation("ann-A", "Quote A");
+        AnnotationItem itemB = CreateAnnotation("ann-B", "Quote B");
+        AnnotationItem itemC = CreateAnnotation("ann-C", "Quote C");
+
+        Task<AnnotationGenerationState> taskA = service.AskAsync(itemA, "Question A");
+        Task<AnnotationGenerationState> taskB = service.AskAsync(itemB, "Question B");
+        Task<AnnotationGenerationState> taskC = service.AskAsync(itemC, "Question C");
+
+        await Task.WhenAll(taskA, taskB, taskC);
+
+        Assert.Equal(AnnotationGenerationState.Completed, await taskA);
+        Assert.Equal(AnnotationGenerationState.Completed, await taskB);
+        Assert.Equal(AnnotationGenerationState.Completed, await taskC);
+
+        // Distinct ThreadIds
+        string[] threadIds = [itemA.ThreadId!, itemB.ThreadId!, itemC.ThreadId!];
+        Assert.Equal(3, threadIds.Distinct().Count());
+
+        // Each annotation only received its own stream deltas
+        Assert.Equal($"[{itemA.ThreadId}:part1][{itemA.ThreadId}:part2][{itemA.ThreadId}:part3]", itemA.Messages[1].Text);
+        Assert.Equal($"[{itemB.ThreadId}:part1][{itemB.ThreadId}:part2][{itemB.ThreadId}:part3]", itemB.Messages[1].Text);
+        Assert.Equal($"[{itemC.ThreadId}:part1][{itemC.ThreadId}:part2][{itemC.ThreadId}:part3]", itemC.Messages[1].Text);
+    }
+
+    [Fact]
+    public async Task Phase4D_AccountSwitch_BlocksCrossAccountThreadReuse()
+    {
+        using var fakeServer = new FakeCodexAppServer { UserId = "user-A", Email = "a@example.com" };
+        using var service = new AnnotationService(() => fakeServer.Transport, deltaCoalesceInterval: TimeSpan.Zero);
+
+        AnnotationItem item = CreateAnnotation("ann-acct", "Quote under account A");
+        AnnotationGenerationState first = await service.AskAsync(item, "Account A question");
+        Assert.Equal(AnnotationGenerationState.Completed, first);
+        string? threadA = item.ThreadId;
+        Assert.NotNull(threadA);
+
+        // Switch active account on the server to User B
+        fakeServer.UserId = "user-B";
+        fakeServer.Email = "b@example.com";
+
+        AnnotationGenerationState second = await service.AskAsync(item, "Follow-up after account switch");
+        Assert.Equal(AnnotationGenerationState.Failed, second);
+        Assert.Null(item.ThreadId); // Old thread cleared, not reused under account B
+        Assert.Contains("账号已切换", item.LastError, StringComparison.Ordinal);
+        Assert.Single(fakeServer.ReceivedTurns); // Second turn was blocked before turn/start!
+    }
+
+    [Fact]
+    public async Task Phase4E_CancelOneAnnotation_LeavesOtherAnnotationRunningAndIgnoresLateDeltas()
+    {
+        var turnStartedGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var fakeServer = new FakeCodexAppServer();
+        fakeServer.CustomTurnHandler = async (threadId, turnId, input, server) =>
+        {
+            await server.WriteServerLineAsync(
+                $$$"""{"method":"item/agentMessage/delta","params":{"threadId":"{{{threadId}}}","turnId":"{{{turnId}}}","itemId":"i","delta":"Partial-{{{threadId}}}"}}""");
+
+            if (input.Contains("CancelMe", StringComparison.Ordinal))
+            {
+                turnStartedGate.TrySetResult();
+                await Task.Delay(300);
+                // Emit a late delta after interrupt to verify client ignores it
+                await server.WriteServerLineAsync(
+                    $$$"""{"method":"item/agentMessage/delta","params":{"threadId":"{{{threadId}}}","turnId":"{{{turnId}}}","itemId":"i","delta":"-LATE_SHOULD_BE_IGNORED"}}""");
+            }
+            else
+            {
+                await Task.Delay(80);
+                await server.WriteServerLineAsync(
+                    $$$"""{"method":"item/agentMessage/delta","params":{"threadId":"{{{threadId}}}","turnId":"{{{turnId}}}","itemId":"i","delta":"-Complete"}}""");
+                await server.WriteServerLineAsync(
+                    $$$$"""{"method":"turn/completed","params":{"threadId":"{{{{threadId}}}}","turn":{"id":"{{{{turnId}}}}","items":[],"status":"completed"}}}""");
+            }
+        };
+
+        using var service = new AnnotationService(() => fakeServer.Transport, deltaCoalesceInterval: TimeSpan.Zero);
+        AnnotationItem itemCancel = CreateAnnotation("ann-cancel", "Quote 1");
+        AnnotationItem itemKeep = CreateAnnotation("ann-keep", "Quote 2");
+
+        Task<AnnotationGenerationState> cancelTask = service.AskAsync(itemCancel, "CancelMe");
+        Task<AnnotationGenerationState> keepTask = service.AskAsync(itemKeep, "KeepRunning");
+
+        await turnStartedGate.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        TurnInterruptResult interrupt = await service.CancelTurnAsync(itemCancel);
+        Assert.True(interrupt.ServerConfirmed);
+
+        await Task.WhenAll(cancelTask, keepTask);
+        await Task.Delay(350); // Allow any late server delta to arrive
+
+        Assert.Equal(AnnotationGenerationState.Cancelled, itemCancel.GenerationState);
+        Assert.False(itemCancel.Messages[1].IsCommittedHistory);
+        Assert.DoesNotContain("LATE_SHOULD_BE_IGNORED", itemCancel.Messages[1].Text, StringComparison.Ordinal);
+
+        Assert.Equal(AnnotationGenerationState.Completed, itemKeep.GenerationState);
+        Assert.True(itemKeep.Messages[1].IsCommittedHistory);
+        Assert.EndsWith("-Complete", itemKeep.Messages[1].Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Phase4E_ProcessCrashAndRecovery_FailsActiveTurnAndReconnectsOnNextAsk()
+    {
+        FakeCodexAppServer? currentServer = new();
+        currentServer.CustomTurnHandler = async (threadId, turnId, input, server) =>
+        {
+            await server.WriteServerLineAsync(
+                $$$"""{"method":"item/agentMessage/delta","params":{"threadId":"{{{threadId}}}","turnId":"{{{turnId}}}","itemId":"i","delta":"BeforeCrash"}}""");
+            await Task.Delay(30);
+            server.SimulateCrash(); // Simulate App Server process crash mid-stream
+        };
+
+        using var service = new AnnotationService(
+            () => currentServer!.Transport,
+            deltaCoalesceInterval: TimeSpan.Zero);
+
+        AnnotationItem item = CreateAnnotation("ann-recover", "Quote for crash recovery");
+        AnnotationGenerationState crashState = await service.AskAsync(item, "First try");
+
+        Assert.Equal(AnnotationGenerationState.Failed, crashState);
+        Assert.Equal("BeforeCrash", item.Messages[1].Text);
+        Assert.False(item.Messages[1].IsCommittedHistory);
+        Assert.Contains("连接中断", item.LastError, StringComparison.Ordinal);
+
+        // Replace with a healthy server instance and retry on the same annotation
+        currentServer.Dispose();
+        currentServer = new FakeCodexAppServer();
+        try
+        {
+            AnnotationGenerationState recoveredState = await service.AskAsync(item, "Retry after crash");
+            Assert.Equal(AnnotationGenerationState.Completed, recoveredState);
+            Assert.Equal("Reply for thread-1/turn-1", item.Messages.Last().Text);
+            Assert.True(item.Messages.Last().IsCommittedHistory);
+        }
+        finally
+        {
+            currentServer.Dispose();
+        }
+    }
+
+    [Fact]
+    public void Phase4E_AnnotationWindowUi_SupportsShiftEnterNewlineAndStopButtonStates()
+    {
+        Exception? failure = null;
+        var sta = new Thread(() =>
+        {
+            try
+            {
+                using var fakeServer = new FakeCodexAppServer();
+                using var service = new AnnotationService(() => fakeServer.Transport, deltaCoalesceInterval: TimeSpan.Zero);
+                AnnotationItem item = CreateAnnotation("ann-ui", "x = 42");
+                var window = new AnnotationWindow(item, service);
+
+                item.GenerationState = AnnotationGenerationState.Generating;
+                item.StatusNotice = "AI 正在生成...";
+                window.RefreshConversationUi();
+                Assert.Equal(Visibility.Visible, window.StopButtonControl.Visibility);
+                Assert.Equal(Visibility.Collapsed, window.SendButtonControl.Visibility);
+
+                item.GenerationState = AnnotationGenerationState.Completed;
+                item.StatusNotice = null;
+                _ = item.AddUserMessage("测试问题");
+                AnnotationMessage ans = item.BeginAssistantMessage("turn-1");
+                item.UpdateAssistantMessage(ans, "测试回答", AnnotationGenerationState.Completed, committed: true);
+                window.RefreshConversationUi();
+
+                Assert.Equal(Visibility.Visible, window.ConversationContainer.Visibility);
+                Assert.Equal(2, window.MessagesContainer.Children.Count);
+                Assert.Equal(Visibility.Collapsed, window.StopButtonControl.Visibility);
+                Assert.Equal(Visibility.Visible, window.SendButtonControl.Visibility);
+
+                window.CloseByUser();
+                Assert.True(item.IsClosed);
+            }
+            catch (Exception ex)
+            {
+                failure = ex;
+            }
+        });
+        sta.SetApartmentState(ApartmentState.STA);
+        sta.Start();
+        sta.Join();
+        if (failure is not null)
+            throw new AggregateException(failure);
     }
 }

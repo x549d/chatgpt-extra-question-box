@@ -25,6 +25,8 @@ internal static class Program
             }
             if (args is ["--self-test"])
                 return SelfTestAsync().GetAwaiter().GetResult();
+            if (args is ["--verify-app-server"])
+                return VerifyLiveAppServerAsync().GetAwaiter().GetResult();
             if (args.Length == 0 || args is ["--companion"])
                 return Companion.Run();
             if (args is ["--launch"])
@@ -129,6 +131,7 @@ internal static class Program
         TestOverlayPlacement();
         await TestOverlayWindowAsync();
         await TestPhase3AnnotationsAsync();
+        await TestPhase4AppServerAsync();
         TestChatRules();
         TestDesktopStartup();
 
@@ -301,6 +304,166 @@ internal static class Program
         Require(RoleAt(20, 34) == SelectionRegion.Unknown && RoleAt(11, 13) == SelectionRegion.Unknown,
             "selections crossing a heading or a message boundary stay excluded");
         Require(RoleAt(63, 68) == SelectionRegion.Unknown, "neutral marker stops a preceding assistant turn");
+    }
+
+    private static async Task<int> VerifyLiveAppServerAsync()
+    {
+        var logs = new List<string>();
+        void Log(string msg)
+        {
+            Console.WriteLine(msg);
+            logs.Add(msg);
+        }
+
+        int? serverPid = null;
+        using (var service = new AnnotationService(diagnosticLogger: Log))
+        {
+            var owner = new WindowIdentity(new nint(0x1001), (uint)Environment.ProcessId);
+            var bounds = new ScreenRectangle(0, 0, 1920, 1080);
+            var viewport = new ScreenRectangle(200, 100, 1200, 800);
+            var anchor1 = new ScreenRectangle(300, 200, 200, 28);
+            var anchor2 = new ScreenRectangle(300, 400, 200, 28);
+
+            var itemA = new AnnotationItem(
+                "ann-live-1",
+                SelectionSnapshot.FromSelection(
+                    new OverlaySelection(owner, bounds, viewport, [anchor1], "def calculate(a, b):\n    return a * b + 10"),
+                    anchor1));
+
+            int uiUpdatesTurn1 = 0;
+            AnnotationGenerationState state1 = await service.AskAsync(
+                itemA,
+                "请用简短的一句话解释这段代码的计算逻辑。",
+                () => Interlocked.Increment(ref uiUpdatesTurn1));
+
+            serverPid = service.AppServerProcessId;
+            Log($"live_turn1 state={state1} server_pid={serverPid} model={itemA.ModelName} account_scope={itemA.AccountScopeId} thread_len={itemA.ThreadId?.Length ?? 0} ui_updates={uiUpdatesTurn1} reply_len={itemA.StreamingResponseText.Length}");
+            if (state1 != AnnotationGenerationState.Completed || string.IsNullOrWhiteSpace(itemA.StreamingResponseText))
+                return 1;
+
+            string? firstThreadId = itemA.ThreadId;
+            int uiUpdatesTurn2 = 0;
+            AnnotationGenerationState state2 = await service.AskAsync(
+                itemA,
+                "基于刚才的代码，如果调用 calculate(3, 4)，返回值是多少？请直接给出计算结果。",
+                () => Interlocked.Increment(ref uiUpdatesTurn2));
+
+            bool sameThread = string.Equals(firstThreadId, itemA.ThreadId, StringComparison.Ordinal);
+            bool mentions22 = itemA.StreamingResponseText.Contains("22", StringComparison.Ordinal);
+            Log($"live_turn2 state={state2} same_thread={sameThread} mentions_22={mentions22} message_count={itemA.Messages.Count} ui_updates={uiUpdatesTurn2} reply_len={itemA.StreamingResponseText.Length}");
+            if (state2 != AnnotationGenerationState.Completed || !sameThread || !mentions22)
+                return 1;
+
+            // Second independent annotation itemB verifying thread isolation on live App Server
+            var itemB = new AnnotationItem(
+                "ann-live-2",
+                SelectionSnapshot.FromSelection(
+                    new OverlaySelection(owner, bounds, viewport, [anchor2], "Python 的 tuple 是不可变序列。"),
+                    anchor2));
+            AnnotationGenerationState stateB = await service.AskAsync(
+                itemB,
+                "请用一句话说明 tuple 与 list 的核心区别。");
+            bool distinctThreads = !string.Equals(itemA.ThreadId, itemB.ThreadId, StringComparison.Ordinal);
+            Log($"live_annotation_b state={stateB} distinct_threads={distinctThreads} a_messages={itemA.Messages.Count} b_messages={itemB.Messages.Count} b_reply_len={itemB.StreamingResponseText.Length}");
+            if (stateB != AnnotationGenerationState.Completed || !distinctThreads)
+                return 1;
+        }
+
+        bool serverExited = true;
+        if (serverPid is { } pid)
+        {
+            try
+            {
+                using var proc = Process.GetProcessById(pid);
+                serverExited = proc.WaitForExit(3000);
+            }
+            catch (ArgumentException)
+            {
+                serverExited = true;
+            }
+        }
+        Log($"live_cleanup server_pid={serverPid} server_exited={serverExited}");
+        return serverExited ? 0 : 1;
+    }
+
+    private static async Task TestPhase4AppServerAsync()
+    {
+        string fp1 = CodexAppServerClient.ComputeAccountScopeFingerprint("chatgpt", "u-1", "alice@example.com", null);
+        string fp2 = CodexAppServerClient.ComputeAccountScopeFingerprint("chatgpt", "u-2", "bob@example.com", null);
+        Require(fp1.StartsWith("acct-", StringComparison.Ordinal) && fp1 != fp2
+            && !fp1.Contains("alice", StringComparison.OrdinalIgnoreCase),
+            "Phase 4A account scope fingerprint is deterministic and redacts PII");
+
+        var serverOut = new System.IO.Pipes.AnonymousPipeServerStream(System.IO.Pipes.PipeDirection.Out, HandleInheritability.None);
+        var clientIn = new System.IO.Pipes.AnonymousPipeClientStream(System.IO.Pipes.PipeDirection.In, serverOut.GetClientHandleAsString());
+        var clientOut = new System.IO.Pipes.AnonymousPipeServerStream(System.IO.Pipes.PipeDirection.Out, HandleInheritability.None);
+        var serverIn = new System.IO.Pipes.AnonymousPipeClientStream(System.IO.Pipes.PipeDirection.In, clientOut.GetClientHandleAsString());
+        var utf8 = new System.Text.UTF8Encoding(false);
+        using var transport = new StreamAppServerTransport(clientIn, clientOut, processId: 7777);
+        using var reader = new StreamReader(serverIn, utf8);
+        using var writer = new StreamWriter(serverOut, utf8) { NewLine = "\n", AutoFlush = true };
+
+        Task serverLoop = Task.Run(async () =>
+        {
+            while (await reader.ReadLineAsync() is { } line)
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(line);
+                var root = doc.RootElement;
+                if (!root.TryGetProperty("method", out var m))
+                    continue;
+                string method = m.GetString()!;
+                long id = root.TryGetProperty("id", out var idProp) ? idProp.GetInt64() : 0;
+                switch (method)
+                {
+                    case "initialize":
+                        await writer.WriteLineAsync(
+                            $$$"""{"id":{{{id}}},"result":{"codexHome":"C:\\test","platformFamily":"windows","platformOs":"windows","userAgent":"test"}}""");
+                        break;
+                    case "account/read":
+                        await writer.WriteLineAsync(
+                            $$$$"""{"id":{{{{id}}}},"result":{"requiresOpenaiAuth":true,"userId":"u1","account":{"type":"chatgpt","email":"dev@example.com","planType":"plus","workspaceName":null}}}""");
+                        break;
+                    case "model/list":
+                        await writer.WriteLineAsync(
+                            $$$"""{"id":{{{id}}},"result":{"data":[{"id":"m1","model":"gpt-6.2-sol","displayName":"GPT-6.2 Sol","description":"Default","isDefault":true,"hidden":false,"defaultReasoningEffort":"medium","supportedReasoningEfforts":[]}]}}""");
+                        break;
+                    case "thread/start":
+                        await writer.WriteLineAsync(
+                            $$$$"""{"id":{{{{id}}}},"result":{"approvalPolicy":"never","approvalsReviewer":"user","cwd":"C:\\temp","model":"gpt-6.2-sol","modelProvider":"openai","sandbox":{"type":"readOnly","networkAccess":false},"thread":{"id":"thread-selftest","ephemeral":true}}}""");
+                        break;
+                    case "turn/start":
+                        await writer.WriteLineAsync(
+                            $$$$"""{"id":{{{{id}}}},"result":{"turn":{"id":"turn-selftest","items":[],"status":"inProgress"}}}""");
+                        await writer.WriteLineAsync(
+                            """{"method":"item/agentMessage/delta","params":{"threadId":"thread-selftest","turnId":"turn-selftest","itemId":"i1","delta":"流式"}}""");
+                        await writer.WriteLineAsync(
+                            """{"method":"item/agentMessage/delta","params":{"threadId":"thread-selftest","turnId":"turn-selftest","itemId":"i1","delta":"回答完成"}}""");
+                        await writer.WriteLineAsync(
+                            """{"method":"turn/completed","params":{"threadId":"thread-selftest","turn":{"id":"turn-selftest","items":[],"status":"completed"}}}""");
+                        return;
+                }
+            }
+        });
+
+        using var service = new AnnotationService(() => transport, deltaCoalesceInterval: TimeSpan.Zero);
+        var ownerWindow = new WindowIdentity(new nint(0x12340), 4242);
+        var bounds = new ScreenRectangle(500, 150, 1600, 1000);
+        var viewport = new ScreenRectangle(800, 220, 1100, 760);
+        var anchor = new ScreenRectangle(920, 360, 220, 28);
+        var snapshot = SelectionSnapshot.FromSelection(
+            new OverlaySelection(ownerWindow, bounds, viewport, [anchor], "def add(a, b):\n    return a + b"), anchor);
+        var item = new AnnotationItem("ann-p4", snapshot);
+
+        AnnotationGenerationState resultState = await service.AskAsync(item, "这个函数做什么？");
+        await serverLoop.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Require(resultState == AnnotationGenerationState.Completed
+            && item.ThreadId == "thread-selftest"
+            && item.StreamingResponseText == "流式回答完成"
+            && item.Messages.Count == 2
+            && item.Messages[1].Text == "流式回答完成"
+            && item.Messages[1].IsCommittedHistory,
+            "Phase 4B/4C AnnotationService streams deltas and commits completed assistant answer");
     }
 
     private static Task TestPhase3AnnotationsAsync()
