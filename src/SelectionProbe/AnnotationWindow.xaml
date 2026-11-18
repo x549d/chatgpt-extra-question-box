@@ -188,6 +188,7 @@
                 <!-- Status & Error Notice -->
                 <StackPanel Orientation="Horizontal" Margin="0,5,0,0">
                     <Button Content="历史" Click="OnHistoryClick" ToolTip="旁注历史（Ctrl+Alt+H）" Padding="6,2"/>
+                    <Button Content="模型与用量" Click="OnModelClick" Margin="6,0,0,0" Padding="6,2"/>
                     <Button x:Name="ThreadRecoveryButton" Content="新 Thread 恢复" Click="OnThreadRecoveryClick" Visibility="Collapsed" Margin="6,0,0,0" Padding="6,2"/>
                 </StackPanel>
                 <TextBlock x:Name="StatusText" Foreground="#9CA3AF" FontSize="11"

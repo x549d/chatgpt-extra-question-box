@@ -47,7 +47,7 @@ internal sealed class OverlayHost : IDisposable
     {
         this.history = history;
         ownsService = service is null;
-        annotationService = service ?? new AnnotationService(diagnosticLogger: Write);
+        annotationService = service ?? new AnnotationService(diagnosticLogger: Write, settingsDatabase: history?.Database);
         var ready = new TaskCompletionSource<Dispatcher>(TaskCreationOptions.RunContinuationsAsynchronously);
         thread = new Thread(() =>
         {

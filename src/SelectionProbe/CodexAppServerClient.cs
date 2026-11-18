@@ -548,8 +548,17 @@ internal sealed class CodexAppServerClient : IDisposable
         CancellationToken cancellation = default)
     {
         await InitializeAsync(timeout, cancellation).ConfigureAwait(false);
-        JsonElement response = await SendRequestAsync("model/list", new JsonObject(), timeout, cancellation).ConfigureAwait(false);
-        return ParseModelListResponse(response);
+        var models = new List<AppServerModelInfo>();
+        var cursors = new HashSet<string>(StringComparer.Ordinal);
+        string? cursor = null;
+        do
+        {
+            JsonElement response = await SendRequestAsync("model/list", new JsonObject { ["cursor"] = cursor, ["limit"] = 100 }, timeout, cancellation).ConfigureAwait(false);
+            models.AddRange(ParseModelListResponse(response));
+            cursor = response.TryGetProperty("nextCursor", out var next) && next.ValueKind == JsonValueKind.String ? next.GetString() : null;
+            if (cursor is not null && (!cursors.Add(cursor) || cursors.Count > 100)) throw new InvalidDataException("Invalid model catalog pagination.");
+        } while (cursor is not null);
+        return models.DistinctBy(m => m.Model).ToArray();
     }
 
     internal static IReadOnlyList<AppServerModelInfo> ParseModelListResponse(JsonElement response)
@@ -613,6 +622,7 @@ internal sealed class CodexAppServerClient : IDisposable
         var response = await SendRequestAsync("thread/resume", new JsonObject
         {
             ["threadId"] = threadId,
+            ["excludeTurns"] = true,
             ["cwd"] = StdioAppServerTransport.EnsureEmptyWorkspaceDirectory(),
             ["approvalPolicy"] = "never",
             ["sandbox"] = "read-only",

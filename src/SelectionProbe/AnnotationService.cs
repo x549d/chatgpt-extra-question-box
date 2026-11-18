@@ -26,18 +26,24 @@ internal sealed class AnnotationService : IDisposable
     private long clientGeneration;
     private string? defaultModel;
     private bool modelsQueried;
+    private readonly HistoryDatabase? settingsDatabase;
+    private IReadOnlyList<AppServerModelInfo> modelCatalog = [];
+    private string? catalogScope;
+    private readonly SemaphoreSlim catalogLock = new(1, 1);
     private int disposed;
 
     public AnnotationService(
         Func<IAppServerTransport>? transportFactory = null,
         Action<string>? diagnosticLogger = null,
         TimeSpan? deltaCoalesceInterval = null,
-        TimeSpan? turnTimeout = null)
+        TimeSpan? turnTimeout = null,
+        HistoryDatabase? settingsDatabase = null)
     {
         this.transportFactory = transportFactory ?? (() => new StdioAppServerTransport());
         this.diagnosticLogger = diagnosticLogger;
         this.deltaCoalesceInterval = deltaCoalesceInterval ?? TimeSpan.FromMilliseconds(30);
         this.turnTimeout = turnTimeout ?? TimeSpan.FromSeconds(180);
+        this.settingsDatabase = settingsDatabase;
     }
 
     public int? AppServerProcessId => client?.ProcessId;
@@ -45,6 +51,52 @@ internal sealed class AnnotationService : IDisposable
 
     public async Task<AppServerAccountState> ReadCurrentAccountAsync(CancellationToken cancellation = default) =>
         await (await EnsureClientAsync(cancellation).ConfigureAwait(false)).ReadAccountAsync(cancellation: cancellation).ConfigureAwait(false);
+
+    public string? GetPreferredModel(string scope) => settingsDatabase?.GetSetting("default-model:" + scope);
+    public async Task<IReadOnlyList<AppServerModelInfo>> GetModelsAsync(CancellationToken cancellation = default)
+    {
+        var active = await EnsureClientAsync(cancellation).ConfigureAwait(false);
+        var account = await active.ReadAccountAsync(cancellation: cancellation).ConfigureAwait(false);
+        await LoadModelsAsync(active, account.ScopeFingerprint, cancellation, refresh: true).ConfigureAwait(false);
+        return modelCatalog;
+    }
+    public async Task<string> ReadUsageAsync(CancellationToken cancellation = default)
+    {
+        try
+        {
+            var active = await EnsureClientAsync(cancellation).ConfigureAwait(false);
+            return UsageFormatter.Format(await active.SendRequestAsync("account/rateLimits/read", null, cancellation: cancellation).ConfigureAwait(false));
+        }
+        catch (AppServerRpcException) { return "当前账号或 App Server 未提供限额信息。"; }
+    }
+    public async Task SelectModelAsync(string expectedScope, string model, AnnotationItem? annotation = null, CancellationToken cancellation = default)
+    {
+        var account = await ReadCurrentAccountAsync(cancellation).ConfigureAwait(false);
+        if (account.Status != AppServerLoginStatus.LoggedIn || account.ScopeFingerprint != expectedScope || (annotation?.AccountScopeId is { } scope && scope != expectedScope))
+            throw new InvalidOperationException("账号已变化，请刷新模型目录；旧账号设置保持不变。");
+        var models = await GetModelsAsync(cancellation).ConfigureAwait(false);
+        if (!models.Any(m => m.Model == model && !m.Hidden)) throw new InvalidOperationException("此模型已不可用，请刷新目录重新选择。");
+        if (annotation is not null)
+        {
+            if (annotation.IsBusy || annotation.IsClosed) throw new InvalidOperationException("请等待当前生成结束后切换模型。");
+            annotation.ModelName = model; annotation.Persist?.Invoke(annotation, true);
+        }
+        else settingsDatabase?.SetSetting("default-model:" + expectedScope, model);
+    }
+    private async Task LoadModelsAsync(CodexAppServerClient active, string scope, CancellationToken cancellation, bool refresh = false)
+    {
+        await catalogLock.WaitAsync(cancellation).ConfigureAwait(false);
+        try
+        {
+            if (refresh || !modelsQueried || catalogScope != scope)
+            {
+                modelCatalog = await active.ListModelsAsync(cancellation: cancellation).ConfigureAwait(false);
+                defaultModel = modelCatalog.FirstOrDefault(m => m.IsDefault && !m.Hidden)?.Model ?? modelCatalog.FirstOrDefault(m => !m.Hidden)?.Model;
+                catalogScope = scope; modelsQueried = true;
+            }
+        }
+        finally { catalogLock.Release(); }
+    }
 
     /// <summary>
     /// Submits a question for the given annotation, streams incremental deltas via <paramref name="onUiUpdate"/>,
@@ -141,21 +193,20 @@ internal sealed class AnnotationService : IDisposable
             }
 
             // 2. Query model catalog once per client connection (non-fatal if model/list is unsupported).
-            if (!modelsQueried)
+            if (!modelsQueried || catalogScope != account.ScopeFingerprint)
             {
-                modelsQueried = true;
                 try
                 {
-                    IReadOnlyList<AppServerModelInfo> models = await activeClient.ListModelsAsync(cancellation: cancellation)
-                        .ConfigureAwait(false);
-                    defaultModel = models.FirstOrDefault(m => m.IsDefault && !m.Hidden)?.Model
-                        ?? models.FirstOrDefault(m => !m.Hidden)?.Model;
+                    await LoadModelsAsync(activeClient, account.ScopeFingerprint, cancellation).ConfigureAwait(false);
                 }
                 catch (Exception error)
                 {
                     Log($"event=annotation_model_list_skipped error_type={error.GetType().Name}");
                 }
             }
+            item.ModelName ??= GetPreferredModel(account.ScopeFingerprint);
+            if (item.ModelName is { } selectedModel && (!modelsQueried || !modelCatalog.Any(m => !m.Hidden && m.Model == selectedModel)))
+                return FailTurn(session, "已保存的模型当前不可用，请打开模型设置刷新并重新选择。", "model_unavailable");
 
             // 3. Ensure this annotation has its own dedicated App Server Thread on the current connection.
             bool needsNewThread = string.IsNullOrWhiteSpace(item.ThreadId) || item.ThreadClientGeneration != gen;

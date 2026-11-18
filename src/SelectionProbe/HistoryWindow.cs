@@ -50,6 +50,7 @@ internal sealed class HistoryWindow : Window
         AddButton(actions, "删除 / 恢复", () => ChangeFlags(archiveAction: false));
         AddButton(actions, "清空回收站", Purge);
         AddButton(actions, "备份数据库", Backup);
+        AddButton(actions, "模型与用量", () => new ModelWindow(service).Show());
         AddButton(actions, "上一页", async () => { page = Math.Max(0, page - 1); await Reload(); });
         AddButton(actions, "下一页", async () => { if (list.Items.Count == 50) page++; await Reload(); });
         bottom.Children.Add(notice);

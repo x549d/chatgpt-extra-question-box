@@ -64,6 +64,10 @@ internal partial class AnnotationWindow : Window
     public Action? HistoryRequested { get; set; }
 
     private void OnHistoryClick(object sender, RoutedEventArgs e) => HistoryRequested?.Invoke();
+    private void OnModelClick(object sender, RoutedEventArgs e)
+    {
+        if (Service is not null) new ModelWindow(Service, Item) { Owner = this }.Show();
+    }
     private void OnThreadRecoveryClick(object sender, RoutedEventArgs e)
     {
         if (Item.IsBusy || !Item.ThreadRecoveryRequired) return;

@@ -79,6 +79,9 @@ internal sealed class FakeCodexAppServer : IDisposable
     public string PlanType { get; set; } = "plus";
     public bool LoggedIn { get; set; } = true;
     public string DefaultModel { get; set; } = "gpt-6.2-sol";
+    public bool ResumeSupported { get; set; }
+    public ConcurrentQueue<string> ResumedThreads { get; } = new();
+    public ConcurrentQueue<string?> RequestedModels { get; } = new();
 
     public ConcurrentQueue<(string ThreadId, string TurnId, string InputText)> ReceivedTurns { get; } = new();
     public ConcurrentQueue<(string ThreadId, string TurnId)> InterruptedTurns { get; } = new();
@@ -154,8 +157,15 @@ internal sealed class FakeCodexAppServer : IDisposable
                             $$$$"""{"id":{{{{id}}}},"result":{"approvalPolicy":"never","approvalsReviewer":"user","cwd":"C:\\temp","model":"{{{{DefaultModel}}}}","modelProvider":"openai","sandbox":{"type":"readOnly","networkAccess":false},"thread":{"id":"{{{{threadId}}}}","ephemeral":true}}}""");
                         break;
 
+                    case "thread/resume" when ResumeSupported:
+                        string resumed = root.GetProperty("params").GetProperty("threadId").GetString()!;
+                        ResumedThreads.Enqueue(resumed);
+                        await WriteServerLineAsync(JsonSerializer.Serialize(new { id, result = new { thread = new { id = resumed, ephemeral = false } } }));
+                        break;
+
                     case "turn/start":
                         JsonElement p = root.GetProperty("params");
+                        RequestedModels.Enqueue(p.TryGetProperty("model", out var selected) ? selected.GetString() : null);
                         string tid = p.GetProperty("threadId").GetString()!;
                         string inputText = p.GetProperty("input")[0].GetProperty("text").GetString()!;
                         string turnId = $"turn-{Interlocked.Increment(ref nextTurnNum)}";
@@ -181,6 +191,11 @@ internal sealed class FakeCodexAppServer : IDisposable
                                     $$$$"""{"method":"turn/completed","params":{"threadId":"{{{{tid}}}}","turn":{"id":"{{{{turnId}}}}","items":[],"status":"completed"}}}""");
                             });
                         }
+                        break;
+
+                    case "thread/resume":
+                    case "account/rateLimits/read":
+                        await WriteServerLineAsync(JsonSerializer.Serialize(new { id, error = new { code = -32601, message = "Unsupported method in this test fixture" } }));
                         break;
 
                     case "turn/interrupt":
