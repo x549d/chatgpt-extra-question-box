@@ -329,7 +329,13 @@ internal partial class AnnotationWindow : Window
             };
 
             stack.Children.Add(headerBlock);
-            stack.Children.Add(bodyBlock);
+            var copy = new Button { Content = isUser ? "复制问题" : "复制回答", HorizontalAlignment = HorizontalAlignment.Right, Padding = new Thickness(4, 1, 4, 1) };
+            copy.Click += (_, _) => MarkdownView.Copy(msg.Text, copy);
+            stack.Children.Add(copy);
+            FrameworkElement content = isUser ? bodyBlock : MarkdownView.Render(msg.Text);
+            if (msg.Text.Length > 2000 && msg.State != AnnotationGenerationState.Generating)
+                content = new Expander { Header = "展开长消息", Foreground = Brushes.Gainsboro, Content = content };
+            stack.Children.Add(content);
             itemBorder.Child = stack;
             MessagesPanel.Children.Add(itemBorder);
         }
