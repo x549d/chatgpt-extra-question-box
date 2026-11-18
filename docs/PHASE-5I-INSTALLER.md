@@ -32,3 +32,5 @@
 未检测到 WindowsSandbox.exe、vmrun.exe 或 VBoxManage.exe；未自行安装虚拟化组件、要求管理员权限或在真实环境执行卸载破坏性测试。**干净 Windows 安装/首次启动/AI/升级/标准卸载仍为 NOT TESTED**。隔离配置测试不等价于干净环境。
 
 参考：[SQLite Backup API](https://sqlite.org/backup.html)、[Inno registry helper signatures](https://jrsoftware.org/inno-setup/documentation/topic_scriptfunctions.htm)。标准 EXE 和可信签名缺失仍是正式发布限制。
+
+最终载荷重新运行安装专项仍为 16/16。对最终 SHA-256 为 `E9EA822D5EE68B746700BBD2F0B300DA045E89062F81853267DD51602CD7CF7C` 的 EXE 再作独立 TESTROOT 烟测时，Start-Process 在启动阶段返回“操作已被用户取消”，没有生成 setup.log 或部署文件；未再次尝试绕过。该结果独立记录，不使用前次预检退出码冒充最终 EXE 的安装执行结果。
