@@ -18,24 +18,25 @@ internal partial class AnnotationWindow : Window
     private const uint NoZOrder = 0x0004;
     private static readonly nint TopmostWindow = new(-1);
 
-    private const double ExpandedWidthDip = 304;
+    private const double ExpandedWidthDip = 324;
     private const double CollapsedWidthDip = 224;
 
     private bool cleanedUp;
 
-    public AnnotationWindow(AnnotationItem item)
+    public AnnotationWindow(AnnotationItem item, AnnotationService? service = null)
     {
         ArgumentNullException.ThrowIfNull(item);
         Item = item;
+        Service = service;
         InitializeComponent();
 
         // Bind exact verbatim selected text (preserves newlines, indentation, consecutive spaces, CJK/English).
         QuoteTextBlock.Text = item.SelectedText;
         InputBox.Text = item.InputDraft;
-        PlaceholderText.Visibility = string.IsNullOrEmpty(item.InputDraft) ? Visibility.Visible : Visibility.Collapsed;
-        ApplyStatusNotice(item.StatusNotice);
+        UpdatePlaceholderText();
         ApplyQuoteState(item.QuoteExpandedState);
         ApplyExpandedState(item.ExpandedState);
+        RefreshConversationUi();
 
         InputBox.TextChanged += OnInputTextChanged;
         InputBox.KeyDown += OnInputKeyDown;
@@ -45,12 +46,17 @@ internal partial class AnnotationWindow : Window
     }
 
     public AnnotationItem Item { get; }
+    public AnnotationService? Service { get; set; }
 
     public TextBox InputControl => InputBox;
     public TextBlock QuoteControl => QuoteTextBlock;
     public Border QuoteContainer => QuoteBorder;
     public StackPanel BodyContainer => BodyPanel;
     public TextBlock StatusControl => StatusText;
+    public Border ConversationContainer => ConversationBorder;
+    public StackPanel MessagesContainer => MessagesPanel;
+    public Button SendButtonControl => SendButton;
+    public Button StopButtonControl => StopButton;
 
     public Action<AnnotationWindow, string>? DiagnosticLogged { get; set; }
     public Action<AnnotationWindow>? ClosedByUser { get; set; }
@@ -156,23 +162,168 @@ internal partial class AnnotationWindow : Window
 
     public void SubmitDraft(string trigger = "button")
     {
+        if (Item.IsClosed || Item.IsBusy)
+            return;
+
         string draft = InputBox.Text;
         Item.InputDraft = draft;
         if (string.IsNullOrWhiteSpace(draft))
         {
-            Item.StatusNotice = "请输入你的问题后再提交。";
-            ApplyStatusNotice(Item.StatusNotice);
-            UpdateLayout();
+            Item.LastError = "请输入你的问题后再发送。";
+            Item.StatusNotice = Item.LastError;
+            RefreshConversationUi();
             return;
         }
 
         Item.SubmittedDraft = draft;
-        Item.StatusNotice = "已保存在当前旁注（AI 实时回答将在 Phase 4 接入）";
-        ApplyStatusNotice(Item.StatusNotice);
-        UpdateLayout();
         DiagnosticLogged?.Invoke(this,
-            $"annotation_question_staged annotation_id={Item.AnnotationId} trigger={trigger} draft_length={draft.Length} selected_text_length={Item.SelectedText.Length}");
+            $"annotation_question_submitted annotation_id={Item.AnnotationId} trigger={trigger} draft_length={draft.Length} selected_text_length={Item.SelectedText.Length}");
+
+        if (Service is not null)
+        {
+            // Clear the input box for the next follow-up turn while keeping SubmittedDraft & Messages populated.
+            InputBox.Text = "";
+            Item.InputDraft = "";
+            _ = Service.AskAsync(Item, draft, RefreshFromBackground);
+            return;
+        }
+
+        // Offline fallback when no AnnotationService is attached (e.g. standalone window unit tests).
+        Item.StatusNotice = "已保存在当前旁注（Phase 4 服务未挂载）";
+        ApplyStatusNotice(Item.StatusNotice, isError: false);
+        UpdateLayout();
         LayoutChanged?.Invoke(this, "question_staged");
+    }
+
+    public void CancelGeneration(string trigger = "stop_button")
+    {
+        if (Item.IsClosed || Service is null)
+            return;
+        DiagnosticLogged?.Invoke(this,
+            $"annotation_cancel_requested annotation_id={Item.AnnotationId} trigger={trigger}");
+        _ = Service.CancelTurnAsync(Item);
+    }
+
+    public void RefreshFromBackground()
+    {
+        if (Item.IsClosed || cleanedUp)
+            return;
+        if (Dispatcher.CheckAccess())
+        {
+            RefreshConversationUi();
+        }
+        else
+        {
+            _ = Dispatcher.BeginInvoke(DispatcherPriority.Render, new Action(() =>
+            {
+                if (!Item.IsClosed && !cleanedUp)
+                    RefreshConversationUi();
+            }));
+        }
+    }
+
+    public void RefreshConversationUi()
+    {
+        if (Item.IsClosed || cleanedUp)
+            return;
+
+        IReadOnlyList<AnnotationMessage> messages = Item.SnapshotMessages();
+        bool hasConversation = messages.Count > 0 || Item.GenerationState != AnnotationGenerationState.Idle;
+        ConversationBorder.Visibility = hasConversation ? Visibility.Visible : Visibility.Collapsed;
+
+        if (!string.IsNullOrWhiteSpace(Item.ModelName))
+        {
+            ModelBadge.Text = $"· {Item.ModelName}";
+            ModelBadge.Visibility = Visibility.Visible;
+        }
+
+        PromptLabel.Text = messages.Count > 0 ? "继续追问：" : "关于这段内容，你想问什么？";
+        UpdatePlaceholderText();
+
+        bool busy = Item.IsBusy;
+        StopButton.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
+        SendButton.Visibility = busy ? Visibility.Collapsed : Visibility.Visible;
+        SendButton.IsEnabled = !busy;
+
+        RenderMessages(messages);
+
+        string? status = Item.GenerationState switch
+        {
+            AnnotationGenerationState.Connecting => Item.StatusNotice ?? "正在连接 Codex App Server...",
+            AnnotationGenerationState.Generating => Item.StatusNotice ?? "AI 正在生成...",
+            AnnotationGenerationState.Failed => Item.LastError ?? Item.StatusNotice ?? "请求失败，请重试。",
+            AnnotationGenerationState.Cancelled => Item.StatusNotice ?? "已停止生成",
+            _ => Item.StatusNotice
+        };
+        bool isError = Item.GenerationState == AnnotationGenerationState.Failed;
+        ApplyStatusNotice(status, isError);
+
+        UpdateLayout();
+        if (hasConversation)
+            ConversationScrollViewer.ScrollToEnd();
+        LayoutChanged?.Invoke(this, "conversation_updated");
+    }
+
+    private void RenderMessages(IReadOnlyList<AnnotationMessage> messages)
+    {
+        MessagesPanel.Children.Clear();
+        for (int i = 0; i < messages.Count; i++)
+        {
+            AnnotationMessage msg = messages[i];
+            bool isUser = msg.Role == "user";
+
+            var itemBorder = new Border
+            {
+                CornerRadius = new CornerRadius(6),
+                Background = new SolidColorBrush(isUser ? Color.FromRgb(0x25, 0x28, 0x32) : Color.FromRgb(0x16, 0x17, 0x1A)),
+                BorderBrush = new SolidColorBrush(isUser ? Color.FromRgb(0x3B, 0x42, 0x54) : Color.FromRgb(0x2E, 0x32, 0x3B)),
+                BorderThickness = new Thickness(1),
+                Padding = new Thickness(8, 5, 8, 6),
+                Margin = new Thickness(0, i == 0 ? 0 : 6, 0, 0)
+            };
+
+            var stack = new StackPanel();
+            string roleHeader = isUser ? "你：" : "AI：";
+            if (!isUser && msg.State == AnnotationGenerationState.Generating)
+                roleHeader = "AI（正在生成）：";
+            else if (!isUser && msg.State == AnnotationGenerationState.Cancelled)
+                roleHeader = "AI（已停止）：";
+            else if (!isUser && msg.State == AnnotationGenerationState.Failed)
+                roleHeader = "AI（未完成）：";
+
+            var headerBlock = new TextBlock
+            {
+                Text = roleHeader,
+                Foreground = new SolidColorBrush(isUser ? Color.FromRgb(0x93, 0xC5, 0xFD) : Color.FromRgb(0x10, 0xA3, 0x7F)),
+                FontSize = 11,
+                FontWeight = FontWeights.SemiBold,
+                FontFamily = new FontFamily("Microsoft YaHei UI, Segoe UI"),
+                Margin = new Thickness(0, 0, 0, 2)
+            };
+
+            string bodyText = string.IsNullOrEmpty(msg.Text) && msg.State == AnnotationGenerationState.Generating
+                ? "…"
+                : msg.Text;
+            var bodyBlock = new TextBlock
+            {
+                Text = bodyText,
+                Foreground = new SolidColorBrush(Color.FromRgb(0xF3, 0xF4, 0xF6)),
+                FontSize = 12,
+                FontFamily = new FontFamily("Cascadia Mono, Consolas, Microsoft YaHei UI, Segoe UI"),
+                TextWrapping = TextWrapping.Wrap
+            };
+
+            stack.Children.Add(headerBlock);
+            stack.Children.Add(bodyBlock);
+            itemBorder.Child = stack;
+            MessagesPanel.Children.Add(itemBorder);
+        }
+    }
+
+    private void UpdatePlaceholderText()
+    {
+        PlaceholderText.Text = Item.Messages.Count > 0 ? "输入后续问题……" : "输入问题……";
+        PlaceholderText.Visibility = string.IsNullOrEmpty(InputBox.Text) ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void ApplyExpandedState(bool expanded)
@@ -190,7 +341,7 @@ internal partial class AnnotationWindow : Window
         QuoteToggleButton.Content = expanded ? "收起" : "展开";
     }
 
-    private void ApplyStatusNotice(string? notice)
+    private void ApplyStatusNotice(string? notice, bool isError = false)
     {
         if (string.IsNullOrWhiteSpace(notice))
         {
@@ -200,6 +351,8 @@ internal partial class AnnotationWindow : Window
         else
         {
             StatusText.Text = notice;
+            StatusText.Foreground = new SolidColorBrush(
+                isError ? Color.FromRgb(0xF8, 0x71, 0x71) : Color.FromRgb(0x9C, 0xA3, 0xAF));
             StatusText.Visibility = Visibility.Visible;
         }
     }
@@ -207,13 +360,28 @@ internal partial class AnnotationWindow : Window
     private void OnInputTextChanged(object sender, TextChangedEventArgs e)
     {
         Item.InputDraft = InputBox.Text;
-        PlaceholderText.Visibility = string.IsNullOrEmpty(InputBox.Text) ? Visibility.Visible : Visibility.Collapsed;
+        UpdatePlaceholderText();
     }
 
     private void OnInputKeyDown(object sender, KeyEventArgs e)
     {
         // Do not intercept Enter while an IME composition is active (Key.ImeProcessed).
-        if (e.Key == Key.Return && e.ImeProcessedKey == Key.None && Keyboard.Modifiers == ModifierKeys.None)
+        if (e.Key != Key.Return || e.ImeProcessedKey != Key.None)
+            return;
+
+        if ((Keyboard.Modifiers & ModifierKeys.Shift) == ModifierKeys.Shift)
+        {
+            e.Handled = true;
+            int caret = InputBox.SelectionStart;
+            int selLen = InputBox.SelectionLength;
+            string current = InputBox.Text;
+            InputBox.Text = current[..caret] + "\n" + current[(caret + selLen)..];
+            InputBox.SelectionStart = caret + 1;
+            InputBox.SelectionLength = 0;
+            return;
+        }
+
+        if (Keyboard.Modifiers == ModifierKeys.None)
         {
             e.Handled = true;
             SubmitDraft("enter_key");
@@ -244,6 +412,12 @@ internal partial class AnnotationWindow : Window
         _ = FocusInput();
     }
 
+    private void OnStopClick(object sender, RoutedEventArgs e)
+    {
+        CancelGeneration("stop_button");
+        _ = FocusInput();
+    }
+
     private void OnCloseClick(object sender, RoutedEventArgs e) => CloseByUser();
 
     public void CloseByUser()
@@ -251,6 +425,7 @@ internal partial class AnnotationWindow : Window
         if (Item.IsClosed)
             return;
         Item.IsClosed = true;
+        Service?.NotifyAnnotationClosed(Item);
         ClosedByUser?.Invoke(this);
         Close();
     }
@@ -300,6 +475,7 @@ internal partial class AnnotationWindow : Window
             return;
         cleanedUp = true;
         Item.IsClosed = true;
+        Service?.NotifyAnnotationClosed(Item);
         InputBox.TextChanged -= OnInputTextChanged;
         InputBox.KeyDown -= OnInputKeyDown;
         InputBox.GotKeyboardFocus -= OnInputGotKeyboardFocus;

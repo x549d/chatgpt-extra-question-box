@@ -20,6 +20,8 @@ internal sealed class OverlayHost : IDisposable
     private readonly Stopwatch clock = Stopwatch.StartNew();
     private readonly object updates = new();
     private readonly List<AnnotationWindow> annotations = [];
+    private readonly AnnotationService annotationService;
+    private readonly bool ownsService;
     private OverlaySelection? latest;
     private SelectionSnapshot? boundSnapshot;
     private string hideReason = "not_foreground";
@@ -38,8 +40,10 @@ internal sealed class OverlayHost : IDisposable
     private string? activeTrackingAnnotationId;
     private int nextAnnotationNumber;
 
-    public OverlayHost()
+    public OverlayHost(AnnotationService? service = null)
     {
+        ownsService = service is null;
+        annotationService = service ?? new AnnotationService(diagnosticLogger: Write);
         var ready = new TaskCompletionSource<Dispatcher>(TaskCreationOptions.RunContinuationsAsynchronously);
         thread = new Thread(() =>
         {
@@ -360,7 +364,7 @@ internal sealed class OverlayHost : IDisposable
 
         string id = $"ann-{++nextAnnotationNumber}";
         var item = new AnnotationItem(id, snapshot);
-        var popup = new AnnotationWindow(item)
+        var popup = new AnnotationWindow(item, annotationService)
         {
             DiagnosticLogged = (_, message) => Write(message),
             ClosedByUser = OnAnnotationClosed,
@@ -416,6 +420,7 @@ internal sealed class OverlayHost : IDisposable
     private void OnAnnotationClosed(AnnotationWindow popup)
     {
         bool wasActive = NativeWindows.Foreground().Handle == popup.Handle || popup.IsActive;
+        annotationService.NotifyAnnotationClosed(popup.Item);
         annotations.Remove(popup);
         if (activeTrackingAnnotationId == popup.Item.AnnotationId)
             activeTrackingAnnotationId = annotations.LastOrDefault()?.Item.AnnotationId;
@@ -649,6 +654,7 @@ internal sealed class OverlayHost : IDisposable
             foreach (AnnotationWindow popup in annotations.ToArray())
             {
                 popup.ClosedByUser = null;
+                annotationService.NotifyAnnotationClosed(popup.Item);
                 popup.Close();
             }
             annotations.Clear();
@@ -656,6 +662,8 @@ internal sealed class OverlayHost : IDisposable
             window?.Close();
             Volatile.Write(ref handle, 0);
         });
+        if (ownsService)
+            annotationService.Dispose();
         dispatcher.BeginInvokeShutdown(DispatcherPriority.Normal);
         thread.Join();
     }
