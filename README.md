@@ -20,7 +20,7 @@
 | Phase 0 | 可行性调查 | 完成 | `733bdfb` · [PHASE-0-FEASIBILITY.md](docs/PHASE-0-FEASIBILITY.md) |
 | Phase 1 | 真实选区捕获 | 完成 | `f606855` · [PHASE-1-SELECTION-ACCEPTANCE.md](docs/PHASE-1-SELECTION-ACCEPTANCE.md) |
 | Phase 2 | 选区旁浮动按钮（只验收了 Codex 模式） | 完成 | `53bf7c3` · [PHASE-2-OVERLAY-ACCEPTANCE.md](docs/PHASE-2-OVERLAY-ACCEPTANCE.md) |
-| **Phase 2R** | **Codex Chat 模式支持 + 常驻 + 插件化** | **进行中，代码完成，等待实机验收** | 本提交（WIP） |
+| **Phase 2R** | **Codex Chat 模式支持 + 常驻 + 插件化** | **PARTIAL，冷启动已观察到，待真实选区和点击复测** | [PHASE-2R-CHAT-ACCEPTANCE.md](docs/PHASE-2R-CHAT-ACCEPTANCE.md) |
 | Phase 3 | 按钮 → 小型提问框（自动引用原文、自动聚焦） | 未开始 | — |
 | Phase 4 | 接入本机 ChatGPT 登录 / App Server | 未开始 | — |
 | Phase 5 | 流式输出、连续追问、多旁注、上下文隔离 | 未开始 | — |
@@ -34,12 +34,12 @@
 - **Chat 模式失效的原因**：`53bf7c3` 先判断模式再读选区。模式判断只认名字为 `切换模式，当前模式：Codex` 的按钮；Chat 模式下按钮名是 `…当前模式：ChatGPT`，于是每次都直接返回 `codex-mode-unconfirmed`。而且找不到按钮时，每 180 ms 就扫描一次整棵 UI 树。
 - **185 秒后自动退出**：这是 Phase 2 验收命令带的 `--seconds 185` 造成的。另外，正式产品所需的单实例、自启动和崩溃恢复当时也都没有。
 
-### 已实现（代码完成，自测 44/44 PASS，尚未实机验收）
+### 已实现（自测 48/48 PASS）
 
 | 项 | 实现 |
 | --- | --- |
 | 只支持 Chat | 模式按钮名为 `…当前模式：ChatGPT` 才工作；Codex 模式记为 `mode_codex` 并隐藏。按钮元素会缓存，每次采样只读取一次名字，找不到时最多每 3 秒重新查找一次 |
-| 角色识别 | 从选区沿父级向上，只查每一层的**直接子元素**有没有隐藏角色标题（`ChatGPT 说：` / `你说：`）。选区两端必须在同一条消息内。遇到 Edit 判为 Composer，遇到导航区判为 Sidebar；规则是 Assistant 显示，User / Composer / Sidebar / Unknown 一律隐藏 |
+| 角色识别 | 检查选区所属的正文容器、滚动区和桌面主内容层级，再按 UIA 文本范围寻找最近的前置隐藏角色标题。选区必须留在同一条消息内。遇到 Edit 判为 Composer，遇到导航区判为 Sidebar；Assistant 显示，User / Composer / Sidebar / Unknown 隐藏 |
 | 性能 | 采样路径上没有全树搜索。父级属性用 CacheRequest 批量读取；输入框元素会缓存，失效后按节流重新查找 |
 | 可视区 | 以消息外层可滚动容器为可视区，并扣掉浮在底部的输入框区域 |
 | 按钮定位 | 右侧（与首行顶部对齐）→ 左侧 → 下方 → 上方；过滤 1×2 等异常矩形；不盖住选区，不超出可视区和屏幕工作区 |
@@ -53,30 +53,15 @@
 - 已通过官方 CLI 注册本地插件源 `context-notes-native`（指向本仓库 `codex-plugin/`），并安装、启用了 `context-notes@context-notes-native`（插件缓存目录：`~\.codex\plugins\cache\context-notes-native\context-notes\0.2.0\`）。
 - 已停止旧实验留下的常驻进程，删除了旧的开始菜单快捷方式。
 
-### 待完成（需要在交互桌面操作）
+### 真实桌面进度
 
-开发代理的执行环境看不到交互桌面，也不能启动窗口程序，所以下面几步要由用户本人，或由有桌面操作能力的代理完成：
-
-1. 完全退出并重新打开 Codex。
-2. **Settings > Hooks**：信任 Context Notes 的 SessionStart hook。这是 Codex 的安全确认，必须由用户本人完成。
-3. 切到 Chat 模式并打开一个对话（**不要发送任何内容**），检查后台进程是否被拉起：
-   ```powershell
-   Get-Process SelectionProbe -ErrorAction SilentlyContinue
-   Get-Content "$env:LOCALAPPDATA\ContextNotesNative\logs\launch.log" -Tail 5
-   ```
-   - **待验证的关键问题**：官方文档把 hook 定义为 Codex 运行时的生命周期事件，**纯 Chat 对话会不会触发 SessionStart 尚不确定**。如果不会触发，需要另选启动方式。
-4. 运行结构诊断，期间依次选中：助手回答文字、助手代码、用户消息、侧栏标题、输入框草稿；最后切到 Codex 模式选中一段，再切回 Chat：
-   ```powershell
-   Start-Process "$env:USERPROFILE\.codex\plugins\cache\context-notes-native\context-notes\0.2.0\bin\SelectionProbe.exe" -ArgumentList '--inspect','--seconds','240'
-   ```
-5. 根据 `%LOCALAPPDATA%\ContextNotesNative\logs\` 下的 `inspect-*.log`、`companion.log`、`launch.log` 修正识别规则。
-6. 正式 13 项验收：Chat 模式、Assistant 识别、User / Composer / Sidebar 排除、按钮出现、按钮紧贴选区、快速改选、滚动、窗口移动、失焦隐藏、回到前台恢复、常驻运行。全部通过后生成 `docs/PHASE-2R-CHAT-ACCEPTANCE.md`，单独 Commit。多屏和混合 DPI 没有实测则标 **NOT TESTED**。
+已观察到冷启动恢复已有会话时，`SessionStart:resume` 自动启动后台。真实 UIA 诊断复现了旧角色规则的误判，修复版用真实 Chat 可见文本范围复核了助手与用户角色。待复测修复版的物理拖选、按钮定位、用户消息排除以及实鼠点击后的前台状态。各项状态和证据见 [验收报告](docs/PHASE-2R-CHAT-ACCEPTANCE.md)。
 
 ### 已知风险
 
 - 角色标题、模式按钮名、类名等都来自 Codex 当前版本（26.1111.2228.0，简体中文界面）的可访问性结构，客户端更新后需要复测。英文界面的名称已加入匹配规则，但没有实测。
 - 插件文件更新后，Codex 可能要求重新信任 hook。
-- 如果 Codex 在沙箱用户下执行 hook，后台进程可能无法访问桌面 UIA。`launch.log` 会记录 `user_rid`、`integrity`、`uia_desktop_children`，可据此判断。
+- 后台需要与 Codex 处于同一交互桌面。`launch.log` 记录会话、权限级别和 Codex 前台状态，可用于诊断。
 
 ## 目录结构
 

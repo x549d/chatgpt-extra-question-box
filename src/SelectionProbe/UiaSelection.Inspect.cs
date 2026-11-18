@@ -1,6 +1,5 @@
 using System.Globalization;
 using System.Text;
-using System.Text.RegularExpressions;
 using System.Windows.Automation;
 using System.Windows.Automation.Text;
 
@@ -8,17 +7,10 @@ namespace ContextNotes.SelectionProbe;
 
 /// <summary>
 /// Read-only structural diagnostics for real Codex Chat research. Output contains control types, automation ids,
-/// class tokens, rectangles and lengths. It never prints selected text or message content: element names are only
-/// printed for known role labels or for container controls whose names come from accessibility labels.
+/// class tokens, rectangles and lengths. Element names are emitted only when they match known UI labels.
 /// </summary>
 internal sealed partial class UiaSelection
 {
-    private static readonly Regex ToggleName = new(@"^(Chat|Work|聊天|工作|ChatGPT|Codex)$|模式|mode",
-        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-    private static readonly Condition ToggleCondition = new OrCondition(
-        new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Button),
-        new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.RadioButton),
-        new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.TabItem));
     private static readonly Condition TextCondition =
         new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Text);
     private string? lastSignature;
@@ -39,7 +31,6 @@ internal sealed partial class UiaSelection
                 environmentReported = true;
                 var doc = document!.Current;
                 lines.Add($"inspect document framework={doc.FrameworkId} automation_id={doc.AutomationId}");
-                AddToggles(lines);
             }
 
             string mode = CurrentMode();
@@ -94,27 +85,6 @@ internal sealed partial class UiaSelection
     private string SafeModeName() => modeButton?.Current.Name is { } name
         && (ChatModeNames.Contains(name) || CodexModeNames.Contains(name)) ? name : "none";
 
-    private void AddToggles(List<string> lines)
-    {
-        int count = 0;
-        foreach (AutomationElement element in document!.FindAll(TreeScope.Descendants, ToggleCondition))
-        {
-            var info = element.Current;
-            if (info.Name.Length is 0 or > 40 || !ToggleName.IsMatch(info.Name))
-                continue;
-            string state = element.TryGetCurrentPattern(SelectionItemPattern.Pattern, out object selection)
-                ? $" selected={((SelectionItemPattern)selection).Current.IsSelected}"
-                : element.TryGetCurrentPattern(TogglePattern.Pattern, out object toggle)
-                    ? $" toggle={((TogglePattern)toggle).Current.ToggleState}" : "";
-            lines.Add($"inspect toggle type={Short(info.ControlType)} name='{info.Name}' aid={info.AutomationId} " +
-                $"rect={Coordinates(ToScreen(info.BoundingRectangle))} offscreen={info.IsOffscreen}{state} class={Classes(info.ClassName)}");
-            if (++count >= 24)
-                break;
-        }
-        if (count == 0)
-            lines.Add("inspect toggle none");
-    }
-
     private void AddAncestors(List<string> lines, TextPatternRange range)
     {
         AutomationElement? element = range.GetEnclosingElement()?.GetUpdatedCache(Ancestry);
@@ -125,7 +95,7 @@ internal sealed partial class UiaSelection
             lines.Add(FormattableString.Invariant(
                 $"inspect   anc={depth} type={Short(info.ControlType)} loc={info.LocalizedControlType} aid={info.AutomationId} ") +
                 $"fw={info.FrameworkId} scroll={scroll} rect={Coordinates(ToScreen(info.BoundingRectangle))} " +
-                $"name={SafeName(info.ControlType, info.LocalizedControlType, info.Name)} class={Classes(info.ClassName)}");
+                $"name={SafeHeading(info.Name)} class={Classes(info.ClassName)}");
             if (depth < 14)
                 AddChildMarkers(lines, element);
             if (info.ControlType == ControlType.Document && info.AutomationId == "RootWebArea")
@@ -144,7 +114,7 @@ internal sealed partial class UiaSelection
                 continue;
             ScreenRectangle bounds = ToScreen(info.BoundingRectangle);
             lines.Add($"inspect     child_heading name={SafeHeading(info.Name)} sr_only={HasClass(info.ClassName, "sr-only")} " +
-                $"rect={Coordinates(bounds)} marker={IsRoleMarker(info.LocalizedControlType, info.ClassName, bounds)}");
+                $"rect={Coordinates(bounds)} marker={IsRoleMarker(info.LocalizedControlType, info.ClassName)}");
             if (++count >= 6)
                 break;
         }
@@ -173,17 +143,6 @@ internal sealed partial class UiaSelection
     private static string SafeHeading(string name) =>
         AssistantHeadings.Contains(name) || UserHeadings.Contains(name) || NeutralHeadings.Contains(name)
             ? $"'{name}'" : $"len:{name.Length}";
-
-    private static string SafeName(ControlType type, string localized, string name)
-    {
-        if (name.Length == 0)
-            return "''";
-        if (AssistantHeadings.Contains(name) || UserHeadings.Contains(name) || NeutralHeadings.Contains(name))
-            return $"'{name}'";
-        bool labelled = (type == ControlType.Group || type == ControlType.Pane || type == ControlType.Window
-            || type == ControlType.Document) && localized is not ("标题" or "heading" or "段落" or "paragraph");
-        return labelled && name.Length <= 40 ? $"'{name}'" : $"len:{name.Length}";
-    }
 
     private static string Classes(string? classes)
     {

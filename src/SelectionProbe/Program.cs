@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
+using System.Windows.Automation.Text;
 using System.Windows.Controls;
 
 namespace ContextNotes.SelectionProbe;
@@ -228,11 +229,30 @@ internal static class Program
         Require(UiaSelection.RoleFromHeading("你说：") == SelectionRegion.User
             && UiaSelection.RoleFromHeading("You said:") == SelectionRegion.User, "user role heading");
         Require(UiaSelection.RoleFromHeading("最新一条回复") == SelectionRegion.Unknown, "latest-reply marker is neutral");
-        Require(UiaSelection.IsRoleMarker("标题", "sr-only", new ScreenRectangle(10, 10, 300, 20))
-            && UiaSelection.IsRoleMarker("heading", "", new ScreenRectangle(10, 10, 1, 1)), "hidden heading is a role marker");
-        Require(!UiaSelection.IsRoleMarker("标题", "text-lg font-bold", new ScreenRectangle(10, 10, 300, 28))
-            && !UiaSelection.IsRoleMarker("文本", "sr-only", new ScreenRectangle(10, 10, 1, 1)),
+        Require(UiaSelection.IsRoleMarker("标题", "sr-only") && UiaSelection.IsRoleMarker("heading", "sr-only"),
+            "hidden heading is a role marker");
+        Require(!UiaSelection.IsRoleMarker("标题", "text-lg font-bold") && !UiaSelection.IsRoleMarker("文本", "sr-only"),
             "visible Markdown heading named like a role is ignored");
+
+        ((int Start, int End) Range, SelectionRegion Role)[] headings =
+        [
+            ((30, 32), SelectionRegion.User),
+            ((10, 12), SelectionRegion.Assistant),
+            ((0, 2), SelectionRegion.User),
+            ((60, 62), SelectionRegion.Unknown),
+            ((40, 42), SelectionRegion.Assistant)
+        ];
+        SelectionRegion RoleAt(int start, int end) => UiaSelection.RoleFromMarkers<(int Start, int End)>((start, end), headings,
+            static (left, leftEndpoint, right, rightEndpoint) =>
+                (leftEndpoint == TextPatternRangeEndpoint.Start ? left.Start : left.End).CompareTo(
+                    rightEndpoint == TextPatternRangeEndpoint.Start ? right.Start : right.End));
+        Require(RoleAt(12, 30) == SelectionRegion.Assistant && RoleAt(42, 55) == SelectionRegion.Assistant,
+            "flattened multi-turn transcript resolves the immediately preceding assistant heading");
+        Require(RoleAt(3, 8) == SelectionRegion.User && RoleAt(34, 39) == SelectionRegion.User,
+            "interleaved user turns stay excluded");
+        Require(RoleAt(20, 34) == SelectionRegion.Unknown && RoleAt(11, 13) == SelectionRegion.Unknown,
+            "selections crossing a heading or a message boundary stay excluded");
+        Require(RoleAt(63, 68) == SelectionRegion.Unknown, "neutral marker stops a preceding assistant turn");
     }
 
     private static Task TestOverlayWindowAsync()

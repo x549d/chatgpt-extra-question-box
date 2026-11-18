@@ -27,6 +27,7 @@ internal sealed partial class UiaSelection(WindowIdentity window) : IDisposable
     private const int MaxAncestors = 48;
     private static readonly TimeSpan ModeRediscovery = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan ComposerRediscovery = TimeSpan.FromSeconds(3);
+    private const int RoleCacheMilliseconds = 1800;
 
     internal static readonly string[] ChatModeNames = ["切换模式，当前模式：ChatGPT", "Switch mode, current mode: ChatGPT"];
     internal static readonly string[] CodexModeNames = ["切换模式，当前模式：Codex", "Switch mode, current mode: Codex"];
@@ -53,6 +54,9 @@ internal sealed partial class UiaSelection(WindowIdentity window) : IDisposable
     private AutomationElement? document;
     private AutomationElement? modeButton;
     private AutomationElement? composer;
+    private AutomationElement? roleContainer;
+    private (TextPatternRange Range, SelectionRegion Role)[] roleMarkers = [];
+    private long refreshRolesAt;
     private long nextModeDiscovery;
     private long nextComposerDiscovery;
     private long selectionEvents;
@@ -120,6 +124,8 @@ internal sealed partial class UiaSelection(WindowIdentity window) : IDisposable
             document = null;
             modeButton = null;
             composer = null;
+            roleContainer = null;
+            roleMarkers = [];
             return Empty("uia_provider_unavailable");
         }
     }
@@ -173,74 +179,104 @@ internal sealed partial class UiaSelection(WindowIdentity window) : IDisposable
         name is null ? "unknown" : ChatModeNames.Contains(name) ? "chat" : CodexModeNames.Contains(name) ? "codex" : "unknown";
 
     /// <summary>
-    /// Walks from the selection to the document. The first ancestor with a direct child role heading is the
-    /// message turn. Both selection endpoints must stay inside that turn. Edit ancestors mark the composer.
+    /// Chromium flattens the turn containers in some chats. Use the ordered hidden headings in the
+    /// transcript body to resolve one turn, and require the native desktop's conversation ancestry.
     /// </summary>
     internal Classification Classify(TextPattern text, TextPatternRange selection)
     {
         var path = new List<string>();
         AutomationElement? element = selection.GetEnclosingElement()?.GetUpdatedCache(Ancestry);
-        AutomationElement? turn = null;
-        SelectionRegion role = SelectionRegion.Unknown;
+        AutomationElement? body = null;
         ScreenRectangle viewport = default;
+        bool mainContent = false;
+        bool reachedDocument = false;
         for (int depth = 0; element is not null && depth < MaxAncestors; depth++)
         {
             var info = element.Cached;
             if (IsDocument(info))
+            {
+                reachedDocument = element.Equals(document);
                 break;
+            }
             path.Add(info.ControlType.ProgrammaticName.Replace("ControlType.", "", StringComparison.Ordinal));
             if (IsSidebar(info))
                 return new(SelectionRegion.Sidebar, [.. path], default);
             if (info.ControlType == ControlType.Edit)
                 return new(SelectionRegion.Composer, [.. path], default);
 
-            if (turn is null)
+            if (info.ControlType == ControlType.Group && info.FrameworkId == "Chrome")
             {
-                SelectionRegion? found = RoleOfChildren(element);
-                if (found is null)
-                    return new(SelectionRegion.Unknown, [.. path], default);
-                if (found != SelectionRegion.Unknown)
-                {
-                    turn = element;
-                    role = found.Value;
-                }
-            }
-            else if (turn is not null && !viewport.IsValid
-                && element.GetCachedPropertyValue(AutomationElement.IsScrollPatternAvailableProperty) is true)
-            {
-                viewport = ToScreen(info.BoundingRectangle);
+                if (body is null && HasClass(info.ClassName, "transcriptContent-", prefix: true))
+                    body = element;
+                else if (body is not null && HasClass(info.ClassName, "thread-scroll-container")
+                    && element.GetCachedPropertyValue(AutomationElement.IsScrollPatternAvailableProperty) is true)
+                    viewport = ToScreen(info.BoundingRectangle);
+                else if (viewport.IsValid && HasClass(info.ClassName, "MainContentSurface-", prefix: true))
+                    mainContent = true;
             }
             element = TreeWalker.RawViewWalker.GetParent(element, Ancestry);
         }
 
-        if (turn is null)
+        if (body is null || !reachedDocument || !mainContent)
             return new(SelectionRegion.Unknown, [.. path], default);
 
-        TextPatternRange bounds = text.RangeFromChild(turn);
+        TextPatternRange bounds = text.RangeFromChild(body);
         if (selection.CompareEndpoints(TextPatternRangeEndpoint.Start, bounds, TextPatternRangeEndpoint.Start) < 0
             || selection.CompareEndpoints(TextPatternRangeEndpoint.End, bounds, TextPatternRangeEndpoint.End) > 0)
             return new(SelectionRegion.Unknown, [.. path], default);
 
-        ScreenRectangle windowBounds = NativeWindows.WindowBounds(window.Handle);
-        viewport = viewport.IsValid ? viewport.Intersect(windowBounds) : windowBounds;
+        SelectionRegion role = RoleFromMarkers(selection, RoleMarkers(text, body),
+            static (left, leftEndpoint, right, rightEndpoint) => left.CompareEndpoints(leftEndpoint, right, rightEndpoint));
+        viewport = viewport.Intersect(NativeWindows.WindowBounds(window.Handle));
         return new(role, [.. path], viewport);
     }
 
-    /// <summary>Unknown when there is no role heading, null when headings disagree.</summary>
-    private static SelectionRegion? RoleOfChildren(AutomationElement element)
+    private (TextPatternRange Range, SelectionRegion Role)[] RoleMarkers(TextPattern text, AutomationElement body)
     {
-        SelectionRegion role = SelectionRegion.Unknown;
-        foreach (AutomationElement heading in element.FindAll(TreeScope.Children, RoleHeadingCondition))
+        long now = Environment.TickCount64;
+        if (body.Equals(roleContainer) && now < refreshRolesAt)
+            return roleMarkers;
+
+        var markers = new List<(TextPatternRange, SelectionRegion)>();
+        foreach (AutomationElement heading in body.FindAll(TreeScope.Children, RoleHeadingCondition))
         {
             var info = heading.Current;
-            if (!IsRoleMarker(info.LocalizedControlType, info.ClassName, ToScreen(info.BoundingRectangle)))
+            if (!IsRoleMarker(info.LocalizedControlType, info.ClassName))
                 continue;
-            SelectionRegion candidate = RoleFromHeading(info.Name);
-            if (candidate == SelectionRegion.Unknown)
+            markers.Add((text.RangeFromChild(heading), RoleFromHeading(info.Name)));
+        }
+        roleContainer = body;
+        roleMarkers = [.. markers];
+        refreshRolesAt = now + RoleCacheMilliseconds;
+        return roleMarkers;
+    }
+
+    internal static SelectionRegion RoleFromMarkers<T>(T selection, IEnumerable<(T Range, SelectionRegion Role)> markers,
+        Func<T, TextPatternRangeEndpoint, T, TextPatternRangeEndpoint, int> compare)
+    {
+        const TextPatternRangeEndpoint start = TextPatternRangeEndpoint.Start;
+        const TextPatternRangeEndpoint end = TextPatternRangeEndpoint.End;
+        T preceding = default!;
+        bool hasPreceding = false;
+        SelectionRegion role = SelectionRegion.Unknown;
+        foreach (var (marker, candidate) in markers)
+        {
+            if (compare(marker, start, selection, end) >= 0)
                 continue;
-            if (role != SelectionRegion.Unknown && role != candidate)
-                return null;
-            role = candidate;
+            if (compare(marker, end, selection, start) > 0)
+                return SelectionRegion.Unknown;
+
+            int order = hasPreceding ? compare(marker, end, preceding, end) : 1;
+            if (order > 0)
+            {
+                preceding = marker;
+                hasPreceding = true;
+                role = candidate;
+            }
+            else if (order == 0 && role != candidate)
+            {
+                role = SelectionRegion.Unknown;
+            }
         }
         return role;
     }
@@ -251,9 +287,8 @@ internal sealed partial class UiaSelection(WindowIdentity window) : IDisposable
         : SelectionRegion.Unknown;
 
     /// <summary>The desktop exposes roles as visually hidden headings; visible Markdown headings are ignored.</summary>
-    internal static bool IsRoleMarker(string localizedType, string classes, ScreenRectangle bounds) =>
-        localizedType is "标题" or "heading"
-        && (HasClass(classes, "sr-only") || (bounds.Width is > 0 and <= 4 && bounds.Height is > 0 and <= 4));
+    internal static bool IsRoleMarker(string localizedType, string classes) =>
+        localizedType is "标题" or "heading" && HasClass(classes, "sr-only");
 
     private static bool IsDocument(AutomationElement.AutomationElementInformation info) =>
         info.ControlType == ControlType.Document && info.AutomationId == "RootWebArea";

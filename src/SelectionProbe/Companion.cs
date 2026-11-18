@@ -155,9 +155,19 @@ internal static class Companion
             if (!read.Wait(TimeSpan.FromMilliseconds(500)))
                 return "no_input";
             using JsonDocument input = JsonDocument.Parse(read.Result);
-            string hookEvent = input.RootElement.TryGetProperty("hook_event_name", out JsonElement e) ? e.GetString() ?? "?" : "?";
-            string source = input.RootElement.TryGetProperty("source", out JsonElement s) ? s.GetString() ?? "?" : "?";
-            return $"{hookEvent}:{source}";
+            if (!input.RootElement.TryGetProperty("hook_event_name", out JsonElement hookEvent)
+                || hookEvent.GetString() != "SessionStart"
+                || !input.RootElement.TryGetProperty("source", out JsonElement source))
+                return "unrecognized";
+            return source.GetString() switch
+            {
+                "startup" => "SessionStart:startup",
+                "resume" => "SessionStart:resume",
+                "clear" => "SessionStart:clear",
+                "compact" => "SessionStart:compact",
+                "fork" => "SessionStart:fork",
+                _ => "SessionStart:unrecognized"
+            };
         }
         catch (Exception error) when (error is JsonException or IOException or AggregateException or InvalidOperationException)
         {

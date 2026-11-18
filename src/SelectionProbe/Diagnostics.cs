@@ -2,7 +2,6 @@ using System.Diagnostics;
 using System.IO;
 using System.Security.Principal;
 using System.Text;
-using System.Windows.Automation;
 
 namespace ContextNotes.SelectionProbe;
 
@@ -17,17 +16,8 @@ internal static class Diagnostics
         using WindowsIdentity identity = WindowsIdentity.GetCurrent();
         using Process current = Process.GetCurrentProcess();
         string rid = identity.User?.Value is { } sid ? sid[(sid.LastIndexOf('-') + 1)..] : "?";
-        int desktopChildren;
-        try
-        {
-            desktopChildren = AutomationElement.RootElement.FindAll(TreeScope.Children, Condition.TrueCondition).Count;
-        }
-        catch (Exception error) when (UiaSelection.IsUiaFailure(error))
-        {
-            desktopChildren = -1;
-        }
         return $"process pid={current.Id} session={current.SessionId} user_rid={rid} integrity={NativeWindows.IntegrityLevel()} " +
-            $"uia_desktop_children={desktopChildren} codex_running={NativeWindows.CodexRunning()} exe_dir={Path.GetFileName(AppContext.BaseDirectory.TrimEnd('\\'))}";
+            $"codex_foreground={NativeWindows.IsCodex(NativeWindows.Foreground())} codex_running={NativeWindows.CodexRunning()}";
     }
 
     /// <summary>Size-capped append-only log with one rotation.</summary>
