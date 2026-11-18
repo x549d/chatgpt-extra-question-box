@@ -107,6 +107,8 @@ internal sealed class AnnotationItem
     public string? SuspendedThreadId { get; set; }
     public bool RequiresThreadResume { get; set; }
     public bool ThreadRecoveryRequired { get; set; }
+    public bool ThreadIsDurable { get; set; }
+    public string? PersistenceFailure { get; set; }
     public Action<AnnotationItem, bool>? Persist { get; set; }
     public long ThreadClientGeneration { get; set; }
     public bool ThreadAnchoredWithQuote { get; set; }

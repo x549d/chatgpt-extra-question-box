@@ -75,6 +75,8 @@ internal sealed class AnnotationService : IDisposable
         if (account.Status != AppServerLoginStatus.LoggedIn || account.ScopeFingerprint != expectedScope || (annotation?.AccountScopeId is { } scope && scope != expectedScope))
             throw new InvalidOperationException("账号已变化，请刷新模型目录；旧账号设置保持不变。");
         var models = await GetModelsAsync(cancellation).ConfigureAwait(false);
+        var verified = await ReadCurrentAccountAsync(cancellation).ConfigureAwait(false);
+        if (verified.ScopeFingerprint != expectedScope) throw new InvalidOperationException("账号已变化，请刷新目录后重试。");
         if (!models.Any(m => m.Model == model && !m.Hidden)) throw new InvalidOperationException("此模型已不可用，请刷新目录重新选择。");
         if (annotation is not null)
         {
@@ -153,6 +155,7 @@ internal sealed class AnnotationService : IDisposable
 
         try
         {
+            if (item.PersistenceFailure is { } storageError) return FailTurn(session, storageError, "history_write_failed");
             CodexAppServerClient activeClient = await EnsureClientAsync(cancellation).ConfigureAwait(false);
             long gen = Interlocked.Read(ref clientGeneration);
 
@@ -210,6 +213,7 @@ internal sealed class AnnotationService : IDisposable
 
             // 3. Ensure this annotation has its own dedicated App Server Thread on the current connection.
             bool needsNewThread = string.IsNullOrWhiteSpace(item.ThreadId) || item.ThreadClientGeneration != gen;
+            if (item.ThreadIsDurable && item.ThreadId is not null && item.ThreadClientGeneration != gen) item.RequiresThreadResume = true;
             if (item.RequiresThreadResume && item.ThreadId is { } oldThread)
             {
                 try
@@ -231,6 +235,7 @@ internal sealed class AnnotationService : IDisposable
                     model: item.ModelName ?? defaultModel,
                     cancellation: cancellation).ConfigureAwait(false);
                 item.ThreadId = threadInfo.ThreadId;
+                item.ThreadIsDurable = !threadInfo.Ephemeral;
                 item.ModelName = string.IsNullOrWhiteSpace(threadInfo.Model) ? (item.ModelName ?? defaultModel) : threadInfo.Model;
                 item.ThreadClientGeneration = gen;
                 item.ThreadAnchoredWithQuote = false;
@@ -253,6 +258,8 @@ internal sealed class AnnotationService : IDisposable
             item.GenerationState = AnnotationGenerationState.Generating;
             item.StatusNotice = "AI 正在思考...";
             NotifyUi(item, session.UiCallback);
+            item.Persist?.Invoke(item, true);
+            if (item.PersistenceFailure is { } failure) return FailTurn(session, failure, "history_write_failed");
 
             AppServerTurnInfo turnInfo = await activeClient.StartTurnAsync(
                 threadId,
@@ -321,7 +328,7 @@ internal sealed class AnnotationService : IDisposable
         string? threadId = session.ThreadId ?? item.ThreadId;
         string? turnId = session.TurnId ?? item.CurrentTurnId;
         if (!string.IsNullOrWhiteSpace(turnId))
-            cancelledTurnIds[turnId] = 1;
+            RememberCancelled(turnId);
 
         TurnInterruptResult result = new(false);
         if (client is { IsConnected: true } activeClient
@@ -370,7 +377,12 @@ internal sealed class AnnotationService : IDisposable
             var created = new CodexAppServerClient(transport, diagnosticLogger);
             created.NotificationReceived += OnClientNotification;
             created.Disconnected += OnClientDisconnected;
-            await created.InitializeAsync(cancellation: cancellation).ConfigureAwait(false);
+            try { await created.InitializeAsync(cancellation: cancellation).ConfigureAwait(false); }
+            catch
+            {
+                created.NotificationReceived -= OnClientNotification; created.Disconnected -= OnClientDisconnected;
+                created.Dispose(); throw;
+            }
 
             client = created;
             modelsQueried = false;
@@ -483,6 +495,7 @@ internal sealed class AnnotationService : IDisposable
             return;
         }
 
+        if (!session.TryFinalize()) return;
         string finalText = session.FlushBuffer();
         AnnotationItem item = session.Item;
         if (session.AssistantMessage is { } msg)
@@ -502,10 +515,11 @@ internal sealed class AnnotationService : IDisposable
 
     private AnnotationGenerationState CompleteAsCancelled(ActiveTurnSession session, bool serverConfirmed)
     {
+        if (!session.TryFinalize()) return session.Item.GenerationState;
         string partial = session.FlushBuffer();
         AnnotationItem item = session.Item;
         if (session.TurnId is { } tid)
-            cancelledTurnIds[tid] = 1;
+            RememberCancelled(tid);
 
         if (session.AssistantMessage is { } msg)
         {
@@ -529,6 +543,7 @@ internal sealed class AnnotationService : IDisposable
 
     private AnnotationGenerationState FailTurn(ActiveTurnSession session, string userMessage, string reasonCode)
     {
+        if (!session.TryFinalize()) return session.Item.GenerationState;
         string partial = session.FlushBuffer();
         AnnotationItem item = session.Item;
         if (session.AssistantMessage is { } msg)
@@ -600,6 +615,12 @@ internal sealed class AnnotationService : IDisposable
     }
 
     private void Log(string message) => diagnosticLogger?.Invoke(message);
+    private void RememberCancelled(string turnId)
+    {
+        cancelledTurnIds[turnId] = 1;
+        if (cancelledTurnIds.Count > 2048)
+            foreach (string id in cancelledTurnIds.Keys.Take(1024)) cancelledTurnIds.TryRemove(id, out _);
+    }
 
     public void Dispose()
     {
@@ -639,6 +660,16 @@ internal sealed class AnnotationService : IDisposable
         private bool firstDeltaFlushed;
         private bool flushScheduled;
         private int cancelled;
+        private bool finalized;
+
+        public bool TryFinalize()
+        {
+            lock (bufferLock)
+            {
+                if (finalized) return false;
+                finalized = true; return true;
+            }
+        }
 
         public ActiveTurnSession(AnnotationItem item, Action? uiCallback, TimeSpan coalesceWindow)
         {
@@ -761,12 +792,14 @@ internal sealed class AnnotationService : IDisposable
 
         private void ApplyStreamingSnapshot(string snapshot)
         {
-            if (Item.IsClosed)
-                return;
-            if (AssistantMessage is { } msg)
-                Item.UpdateAssistantMessage(msg, snapshot, AnnotationGenerationState.Generating, committed: false);
-            Item.StreamingResponseText = snapshot;
-            Item.StatusNotice = "AI 正在生成...";
+            lock (bufferLock)
+            {
+                if (Item.IsClosed || finalized) return;
+                if (AssistantMessage is { } msg)
+                    Item.UpdateAssistantMessage(msg, snapshot, AnnotationGenerationState.Generating, committed: false);
+                Item.StreamingResponseText = snapshot;
+                Item.StatusNotice = "AI 正在生成...";
+            }
             NotifyUi(Item, UiCallback);
         }
 

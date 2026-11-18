@@ -7,6 +7,7 @@ internal sealed class HistoryPersistence : IDisposable
     private readonly Dictionary<string, HistoryRecord> pending = new(StringComparer.Ordinal);
     private readonly HashSet<string> suppressed = new(StringComparer.Ordinal);
     private readonly Timer timer;
+    private bool disposed;
     public HistoryDatabase Database { get; }
     public string? LastFailure { get; private set; }
     public HistoryPersistence(HistoryDatabase database)
@@ -18,9 +19,10 @@ internal sealed class HistoryPersistence : IDisposable
     {
         lock (gate)
         {
-            if (suppressed.Contains(item.AnnotationId)) return;
+            if (disposed || suppressed.Contains(item.AnnotationId)) return;
             pending[item.AnnotationId] = HistoryRecord.Capture(item);
             if (immediate) Flush();
+            item.PersistenceFailure = LastFailure;
         }
     }
     public void Suspend(string id) { lock (gate) { pending.Remove(id); suppressed.Add(id); } }
@@ -29,6 +31,7 @@ internal sealed class HistoryPersistence : IDisposable
     {
         lock (gate)
         {
+            if (disposed) return false;
             try
             {
                 foreach (var r in pending.Values) Database.Save(r);
@@ -46,12 +49,17 @@ internal sealed class HistoryPersistence : IDisposable
     }
     public void Dispose()
     {
-        timer.Dispose();
-        if (Flush())
+        lock (gate)
         {
-            try { Database.Backup(Database.FilePath + ".backup.db"); }
-            catch (System.IO.IOException) { LastFailure = "历史备份失败，原数据库已保留。"; }
+            if (disposed) return;
+            timer.Dispose();
+            if (Flush())
+            {
+                try { Database.Backup(Database.FilePath + ".backup.db"); }
+                catch (System.IO.IOException) { LastFailure = "历史备份失败，原数据库已保留。"; }
+            }
+            disposed = true;
+            Database.Dispose();
         }
-        Database.Dispose();
     }
 }

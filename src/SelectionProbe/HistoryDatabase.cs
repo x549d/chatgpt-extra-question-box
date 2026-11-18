@@ -52,6 +52,8 @@ internal sealed class HistoryDatabase : IDisposable
 
     public void Save(HistoryRecord record)
     {
+        if (record.Messages.Select(m => m.MessageId).Distinct(StringComparer.Ordinal).Count() != record.Messages.Length)
+            throw new IOException("Duplicate message IDs in history snapshot.");
         lock (gate) Transaction(() =>
         {
             // Account ownership can be assigned once; it must never migrate between identities.
@@ -60,11 +62,11 @@ internal sealed class HistoryDatabase : IDisposable
                 throw new InvalidOperationException("Annotation account ownership cannot change.");
             Execute("INSERT INTO annotations(id,account_scope,thread_id,selected_text,created_at,updated_at,payload,title,archived,deleted) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET account_scope=excluded.account_scope,thread_id=excluded.thread_id,updated_at=excluded.updated_at,payload=excluded.payload",
                 record.Id, record.AccountScope, record.ThreadId, record.SelectedText, record.CreatedAt.ToString("O"), record.UpdatedAt.ToString("O"), JsonSerializer.Serialize(record with { Messages = [] }), record.Title, record.Archived ? "1" : "0", record.Deleted ? "1" : "0");
-            Execute("DELETE FROM messages WHERE annotation_id=?", record.Id);
+            Execute("DELETE FROM messages WHERE annotation_id=? AND sequence>=?", record.Id, record.Messages.Length.ToString());
             for (int i = 0; i < record.Messages.Length; i++)
             {
                 var m = record.Messages[i];
-                Execute("INSERT INTO messages VALUES(?,?,?,?,?,?,?,?,?)", m.MessageId, record.Id, m.Role, m.Text, m.Timestamp.ToString("O"), m.TurnId, ((int)m.State).ToString(), m.IsCommittedHistory ? "1" : "0", i.ToString());
+                Execute("INSERT INTO messages VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET annotation_id=CASE WHEN messages.annotation_id=excluded.annotation_id THEN messages.annotation_id END,content=excluded.content,turn_id=excluded.turn_id,completion_status=excluded.completion_status,committed=excluded.committed WHERE messages.annotation_id<>excluded.annotation_id OR messages.content<>excluded.content OR messages.turn_id IS NOT excluded.turn_id OR messages.completion_status<>excluded.completion_status OR messages.committed<>excluded.committed", m.MessageId, record.Id, m.Role, m.Text, m.Timestamp.ToString("O"), m.TurnId, ((int)m.State).ToString(), m.IsCommittedHistory ? "1" : "0", i.ToString());
             }
         });
     }
@@ -195,7 +197,7 @@ internal sealed record HistoryRecord(
         var item = new AnnotationItem(Id, new SelectionSnapshot(owner, ownerBounds, ownerBounds, anchor, [anchor], SelectedText, CreatedAt))
         {
             AccountScopeId = AccountScope == "" ? null : AccountScope, ThreadId = ThreadId, ThreadClientGeneration = -1,
-            RequiresThreadResume = ThreadId is not null, ThreadAnchoredWithQuote = Anchored,
+            RequiresThreadResume = ThreadId is not null, ThreadIsDurable = true, ThreadAnchoredWithQuote = Anchored,
             InputDraft = Draft, SubmittedDraft = SubmittedDraft, ModelName = Model, WindowPosition = Position,
             ExpandedState = Expanded, QuoteExpandedState = QuoteExpanded, IsManuallyMoved = true,
             GenerationState = State is AnnotationGenerationState.Connecting or AnnotationGenerationState.Generating ? AnnotationGenerationState.Failed : State,

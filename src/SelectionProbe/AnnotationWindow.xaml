@@ -6,6 +6,15 @@
         Background="Transparent" Topmost="True" ShowActivated="True"
         ShowInTaskbar="False" WindowStartupLocation="Manual"
         UseLayoutRounding="True" SnapsToDevicePixels="True">
+    <Window.Resources>
+        <Style TargetType="Button">
+            <Setter Property="Background" Value="#34363E"/>
+            <Setter Property="Foreground" Value="#E5E7EB"/>
+            <Setter Property="BorderBrush" Value="#4E525E"/>
+            <Setter Property="FontFamily" Value="Microsoft YaHei UI, Segoe UI"/>
+            <Setter Property="FontSize" Value="11"/>
+        </Style>
+    </Window.Resources>
     <Border x:Name="RootBorder" Margin="4" CornerRadius="11" Background="#232428"
             BorderBrush="#454852" BorderThickness="1" Padding="12,10,12,11">
         <Border.Effect>

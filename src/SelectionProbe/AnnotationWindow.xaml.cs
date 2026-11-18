@@ -22,6 +22,8 @@ internal partial class AnnotationWindow : Window
     private const double CollapsedWidthDip = 224;
 
     private bool cleanedUp;
+    private int refreshQueued;
+    private readonly Dictionary<string, (string Text, AnnotationGenerationState State, Border View)> renderedMessages = new(StringComparer.Ordinal);
 
     public AnnotationWindow(AnnotationItem item, AnnotationService? service = null)
     {
@@ -232,8 +234,10 @@ internal partial class AnnotationWindow : Window
         }
         else
         {
+            if (Interlocked.Exchange(ref refreshQueued, 1) != 0) return;
             _ = Dispatcher.BeginInvoke(DispatcherPriority.Render, new Action(() =>
             {
+                Interlocked.Exchange(ref refreshQueued, 0);
                 if (!Item.IsClosed && !cleanedUp)
                     RefreshConversationUi();
             }));
@@ -275,7 +279,7 @@ internal partial class AnnotationWindow : Window
             _ => Item.StatusNotice
         };
         bool isError = Item.GenerationState == AnnotationGenerationState.Failed;
-        ApplyStatusNotice(status, isError);
+        ApplyStatusNotice(Item.PersistenceFailure ?? status, isError || Item.PersistenceFailure is not null);
 
         UpdateLayout();
         if (hasConversation)
@@ -285,10 +289,14 @@ internal partial class AnnotationWindow : Window
 
     private void RenderMessages(IReadOnlyList<AnnotationMessage> messages)
     {
-        MessagesPanel.Children.Clear();
+        var retained = messages.Select(m => m.MessageId).ToHashSet(StringComparer.Ordinal);
+        foreach (var id in renderedMessages.Keys.Where(id => !retained.Contains(id)).ToArray())
+        { MessagesPanel.Children.Remove(renderedMessages[id].View); renderedMessages.Remove(id); }
         for (int i = 0; i < messages.Count; i++)
         {
             AnnotationMessage msg = messages[i];
+            if (renderedMessages.TryGetValue(msg.MessageId, out var cached) && cached.Text == msg.Text && cached.State == msg.State)
+                continue;
             bool isUser = msg.Role == "user";
 
             var itemBorder = new Border
@@ -341,7 +349,9 @@ internal partial class AnnotationWindow : Window
                 content = new Expander { Header = "展开长消息", Foreground = Brushes.Gainsboro, Content = content };
             stack.Children.Add(content);
             itemBorder.Child = stack;
-            MessagesPanel.Children.Add(itemBorder);
+            if (cached.View is not null) MessagesPanel.Children.Remove(cached.View);
+            MessagesPanel.Children.Insert(Math.Min(i, MessagesPanel.Children.Count), itemBorder);
+            renderedMessages[msg.MessageId] = (msg.Text, msg.State, itemBorder);
         }
     }
 
@@ -501,6 +511,7 @@ internal partial class AnnotationWindow : Window
         if (cleanedUp)
             return;
         cleanedUp = true;
+        renderedMessages.Clear();
         Item.IsClosed = true;
         Service?.NotifyAnnotationClosed(Item);
         InputBox.TextChanged -= OnInputTextChanged;

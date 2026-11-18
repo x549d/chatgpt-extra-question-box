@@ -27,6 +27,10 @@ internal static class Program
                 return SelfTestAsync().GetAwaiter().GetResult();
             if (args is ["--verify-app-server"])
                 return VerifyLiveAppServerAsync().GetAwaiter().GetResult();
+            if (args is ["--phase5-crash-fixture", var crashPath])
+                return Phase5Diagnostics.CrashFixture(crashPath);
+            if (args is ["--phase5-live-prepare"] or ["--phase5-live-resume"])
+                return Phase5Diagnostics.LiveAsync(args[0] == "--phase5-live-resume").GetAwaiter().GetResult();
             if (args.Length == 0 || args is ["--companion"])
                 return Companion.Run();
             if (args is ["--launch"])
