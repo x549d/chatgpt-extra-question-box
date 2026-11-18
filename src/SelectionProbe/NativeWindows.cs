@@ -153,6 +153,51 @@ internal static class NativeWindows
     public static bool PointerOverWindow(nint window) =>
         window != 0 && GetCursorPos(out Point cursor) && GetAncestor(WindowFromPoint(cursor), 2) == window;
 
+    public static void SetOwner(nint window, nint owner)
+    {
+        if (window != 0 && owner != 0)
+            SetWindowLongPtrW(window, -8, owner);
+    }
+
+    public static bool ActivateWindow(nint window, nint ownerWindow)
+    {
+        if (window == 0)
+            return false;
+
+        nint currentForeground = GetForegroundWindow();
+        uint currentThread = GetCurrentThreadId();
+        uint foregroundThread = currentForeground != 0 ? GetWindowThreadProcessId(currentForeground, out _) : 0;
+        uint ownerThread = ownerWindow != 0 ? GetWindowThreadProcessId(ownerWindow, out _) : 0;
+        bool attachedForeground = false;
+        bool attachedOwner = false;
+        try
+        {
+            if (foregroundThread != 0 && foregroundThread != currentThread)
+                attachedForeground = AttachThreadInput(currentThread, foregroundThread, true);
+            if (ownerThread != 0 && ownerThread != currentThread && ownerThread != foregroundThread)
+                attachedOwner = AttachThreadInput(currentThread, ownerThread, true);
+
+            BringWindowToTop(window);
+            _ = SetForegroundWindow(window);
+            _ = SetActiveWindow(window);
+            _ = SetFocus(window);
+        }
+        finally
+        {
+            if (attachedOwner)
+                _ = AttachThreadInput(currentThread, ownerThread, false);
+            if (attachedForeground)
+                _ = AttachThreadInput(currentThread, foregroundThread, false);
+        }
+        return GetForegroundWindow() == window;
+    }
+
+    public static void RestoreForeground(nint ownerWindow)
+    {
+        if (ownerWindow != 0 && IsWindow(ownerWindow))
+            _ = SetForegroundWindow(ownerWindow);
+    }
+
     public static DisplayArea[] Displays()
     {
         var displays = new List<DisplayArea>();
@@ -231,6 +276,22 @@ internal static class NativeWindows
     private static extern bool AreDpiAwarenessContextsEqual(nint first, nint second);
     [DllImport("user32.dll")]
     private static extern nint GetForegroundWindow();
+    [DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(nint window);
+    [DllImport("user32.dll")]
+    private static extern nint SetActiveWindow(nint window);
+    [DllImport("user32.dll")]
+    private static extern nint SetFocus(nint window);
+    [DllImport("user32.dll")]
+    private static extern bool BringWindowToTop(nint window);
+    [DllImport("user32.dll")]
+    private static extern bool IsWindow(nint window);
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool AttachThreadInput(uint attach, uint attachTo, bool enable);
+    [DllImport("user32.dll", ExactSpelling = true, SetLastError = true)]
+    private static extern nint SetWindowLongPtrW(nint window, int index, nint newLong);
+    [DllImport("kernel32.dll")]
+    private static extern uint GetCurrentThreadId();
     [DllImport("user32.dll")]
     private static extern uint GetWindowThreadProcessId(nint window, out uint processId);
     [DllImport("user32.dll")]
