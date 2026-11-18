@@ -47,6 +47,24 @@ internal static class DesktopStartup
         return 0;
     }
 
+    public static int LaunchWatcher()
+    {
+        if (Status(stopRequested: false) == 0)
+            return 0;
+        string executable = Environment.ProcessPath ?? throw new InvalidOperationException("Missing process path.");
+        var start = new System.Diagnostics.ProcessStartInfo(executable)
+        {
+            UseShellExecute = true,
+            WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden,
+            WorkingDirectory = AppContext.BaseDirectory
+        };
+        if (Path.GetFileNameWithoutExtension(executable).Equals("dotnet", StringComparison.OrdinalIgnoreCase))
+            start.ArgumentList.Add(typeof(DesktopStartup).Assembly.Location);
+        start.ArgumentList.Add("--watch-codex");
+        using var process = System.Diagnostics.Process.Start(start);
+        return 0;
+    }
+
     public static int Status(bool stopRequested)
     {
         if (!EventWaitHandle.TryOpenExisting(StopName, out EventWaitHandle? stop))

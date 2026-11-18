@@ -206,8 +206,8 @@ internal static class Companion
         {
             if (!Console.IsInputRedirected)
                 return "manual";
-            Task<string> read = Console.In.ReadToEndAsync();
-            if (!read.Wait(TimeSpan.FromMilliseconds(500)))
+            Task<string> read = Task.Run(static () => Console.In.ReadToEnd());
+            if (!read.Wait(TimeSpan.FromMilliseconds(350)))
                 return "no_input";
             using JsonDocument input = JsonDocument.Parse(read.Result);
             if (!input.RootElement.TryGetProperty("hook_event_name", out JsonElement hookEvent)

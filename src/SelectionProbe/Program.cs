@@ -33,6 +33,8 @@ internal static class Program
                 return Companion.Status(stopRequested: args[0] == "--stop");
             if (args is ["--watch-codex"])
                 return DesktopStartup.Watch();
+            if (args is ["--launch-watcher"])
+                return DesktopStartup.LaunchWatcher();
             if (args is ["--watcher-status"] or ["--stop-watcher"])
                 return DesktopStartup.Status(stopRequested: args[0] == "--stop-watcher");
             if (args is ["--inspect"])
