@@ -4,8 +4,7 @@ param(
     [switch]$SkipMarketplace
 )
 
-# Builds the helper into the local Codex plugin and registers the plugin's local marketplace with Codex.
-# Run from a normal (interactive) Windows PowerShell session of the user who uses Codex.
+# Builds the helper into the local Codex plugin, syncs the local plugin cache, and relaunches the companion.
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 $project = Join-Path $repo 'src\SelectionProbe\SelectionProbe.csproj'
@@ -13,35 +12,56 @@ $marketplaceRoot = Join-Path $repo 'codex-plugin'
 $pluginRoot = Join-Path $marketplaceRoot 'plugins\context-notes'
 $bin = Join-Path $pluginRoot 'bin'
 
-# 1. Stop a running helper so its files are not in use (single instance per user session).
-$running = Get-Process SelectionProbe -ErrorAction SilentlyContinue
-if ($running) {
-    $stopper = @($running | Where-Object { $_.Path } | Select-Object -First 1)[0].Path
-    if ($stopper) {
-        Start-Process -FilePath $stopper -ArgumentList '--stop-watcher' -WindowStyle Hidden -Wait
-        Start-Process -FilePath $stopper -ArgumentList '--stop' -WindowStyle Hidden -Wait
-    }
+# 1. Publish the helper into the plugin directory first.
+$staging = Join-Path ([IO.Path]::GetTempPath()) ('ctx-notes-stage-' + [Guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $staging -Force | Out-Null
+try {
+    dotnet publish $project -c Release --no-self-contained -p:NuGetAudit=false -o $staging --nologo
+    if ($LASTEXITCODE -ne 0) { throw 'Publishing the helper failed.' }
+    Get-ChildItem -LiteralPath $staging -Filter *.pdb | Remove-Item -Force
+
+    $stagedDll = Join-Path $staging 'SelectionProbe.dll'
+    $watcherStatus = & dotnet $stagedDll --watcher-status 2>&1 | Out-String
+    $watcherRunning = ($LASTEXITCODE -eq 0 -and $watcherStatus -match 'desktop_watcher_running')
+
+    # 2. Stop the running companion so it picks up the new build. Keep the interactive watcher running if active.
+    [void](& dotnet $stagedDll --stop)
     $deadline = [DateTime]::UtcNow.AddSeconds(10)
-    while ((Get-Process SelectionProbe -ErrorAction SilentlyContinue) -and [DateTime]::UtcNow -lt $deadline) {
-        Start-Sleep -Milliseconds 200
+    do {
+        $compStatus = & dotnet $stagedDll --status 2>&1 | Out-String
+        if ($LASTEXITCODE -eq 3) { break }
+        Start-Sleep -Milliseconds 150
+    } while ([DateTime]::UtcNow -lt $deadline)
+
+    if (!(Test-Path -LiteralPath $bin)) { New-Item -ItemType Directory -Path $bin -Force | Out-Null }
+    Copy-Item -Path (Join-Path $staging '*') -Destination $bin -Force
+
+    # 3. Sync the active Codex plugin cache directory if present.
+    $manifest = Get-Content -LiteralPath (Join-Path $pluginRoot '.codex-plugin\plugin.json') -Raw | ConvertFrom-Json
+    $profileRoot = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE '.codex' }
+    $cachedBin = Join-Path $profileRoot ("plugins\cache\context-notes-native\context-notes\" + $manifest.version + "\bin")
+    if (Test-Path -LiteralPath $cachedBin) {
+        Get-ChildItem -LiteralPath $cachedBin -Filter '*.bak.*' -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+        foreach ($file in Get-ChildItem -LiteralPath $staging -File) {
+            $dest = Join-Path $cachedBin $file.Name
+            try {
+                Copy-Item -LiteralPath $file.FullName -Destination $dest -Force -ErrorAction Stop
+            } catch {
+                $bak = "$dest.bak." + [Guid]::NewGuid().ToString('N').Substring(0, 6)
+                Move-Item -LiteralPath $dest -Destination $bak -Force
+                Copy-Item -LiteralPath $file.FullName -Destination $dest -Force
+            }
+        }
     }
-    if (Get-Process SelectionProbe -ErrorAction SilentlyContinue) { throw 'The running Context Notes helper did not stop.' }
+
+    if ($watcherRunning) {
+        [void](& dotnet $stagedDll --relaunch-companion)
+    }
+} finally {
+    Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-# 2. Publish the helper into the plugin (framework-dependent, .NET 10 Desktop Runtime required).
-if (Test-Path -LiteralPath $bin) { Remove-Item -LiteralPath $bin -Recurse -Force }
-dotnet publish $project -c Release --no-self-contained -p:NuGetAudit=false -o $bin --nologo
-if ($LASTEXITCODE -ne 0) { throw 'Publishing the helper failed.' }
-Get-ChildItem -LiteralPath $bin -Filter *.pdb | Remove-Item -Force
-
-$manifest = Get-Content -LiteralPath (Join-Path $pluginRoot '.codex-plugin\plugin.json') -Raw | ConvertFrom-Json
-$profileRoot = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE '.codex' }
-$cachedBin = Join-Path $profileRoot ("plugins\cache\context-notes-native\context-notes\" + $manifest.version + "\bin")
-if (Test-Path -LiteralPath $cachedBin) {
-    Copy-Item -Path (Join-Path $bin '*') -Destination $cachedBin -Force
-}
-
-# 3. Register the local marketplace through the documented Codex CLI.
+# 4. Register the local marketplace through the documented Codex CLI if requested.
 if (-not $SkipMarketplace) {
     $codex = (Get-Command codex -ErrorAction SilentlyContinue).Source
     if (-not $codex) {
@@ -58,20 +78,8 @@ if (-not $SkipMarketplace) {
     }
 }
 
-# 4. Remove Start menu shortcuts left by the earlier, unaccepted Install-Companion.ps1 experiment.
-$oldMenu = Join-Path ([Environment]::GetFolderPath('Programs')) 'Context Notes Native'
-if (Test-Path -LiteralPath (Join-Path $oldMenu 'Context Notes Companion.lnk')) {
-    Remove-Item -LiteralPath $oldMenu -Recurse -Force
-    Write-Output 'Removed old Start menu shortcuts from the earlier experiment.'
-}
-
 Write-Output @"
 
-Built: $bin
-Next steps in the Codex desktop app:
-  1. Fully quit and reopen Codex.
-  2. Plugins > source "Context Notes (local)" > 划词追问 Context Notes > Install.
-  3. Settings > Hooks (or "Review hooks" in the composer) > trust the Context Notes SessionStart hook.
-  4. Start a new chat or reopen one; the helper starts in the background.
+Built & deployed: $bin
 Diagnostics (metadata only): $env:LOCALAPPDATA\ContextNotesNative\logs
 "@

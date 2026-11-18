@@ -85,6 +85,21 @@ internal static class DesktopStartup
             return 0;
         }
     }
+
+    public static int RequestRelaunch()
+    {
+        if (!EventWaitHandle.TryOpenExisting(RelaunchName, out EventWaitHandle? relaunch))
+        {
+            Console.WriteLine("desktop_watcher_not_running");
+            return 3;
+        }
+        using (relaunch)
+        {
+            relaunch.Set();
+            Console.WriteLine("companion_relaunch_requested");
+            return 0;
+        }
+    }
 }
 
 internal sealed class DesktopStartupGate

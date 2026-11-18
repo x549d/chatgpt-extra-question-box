@@ -39,6 +39,8 @@ internal static class Program
                 return DesktopStartup.LaunchWatcher();
             if (args is ["--watcher-status"] or ["--stop-watcher"])
                 return DesktopStartup.Status(stopRequested: args[0] == "--stop-watcher");
+            if (args is ["--relaunch-companion"])
+                return DesktopStartup.RequestRelaunch();
             if (args is ["--inspect"])
                 return InspectRunner.Run(TimeSpan.FromSeconds(180));
             if (args is ["--inspect", "--seconds", var inspectSeconds]
