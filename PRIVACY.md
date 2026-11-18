@@ -29,5 +29,8 @@ previous bytes. Exported backups must be managed separately by the user.
 Uninstall keeps local history by default. An interactive uninstall offers
 explicit removal of the known database/WAL/SHM and application backup files.
 Silent uninstall always preserves history. No third-party account or Codex
-authentication files are deleted. Installation rollback backups are temporary
-and removed after the operation; they contain local history when present.
+authentication files are deleted. Installation rollback backups contain local
+history when present and stay under the current user's ContextNotesNative
+backups directory. They are removed after successful installation or recovery;
+if recovery itself fails, the backup is retained and its location is reported.
+Retained recovery backups are not silently removed by uninstall.

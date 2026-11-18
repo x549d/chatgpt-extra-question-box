@@ -11,10 +11,12 @@
 - [使用说明](docs/USER-GUIDE.md) · [安装与更新](docs/INSTALLATION.md) · [故障排查](docs/TROUBLESHOOTING.md)
 - [实现和测试记录](docs/PHASE-5-PRODUCT.md) · [安全说明](docs/SECURITY.md) · [隐私信息草案](PRIVACY.md)
 - [最终交付与未完成项](docs/PHASE-5-ACCEPTANCE.md)：包括实际测试数量、部署状态、安装器受阻原因和桌面操作停止后的状态。
-- 本阶段保留原有 39 项测试，当前共 **85 项 xUnit**；原有自测 **80 项**。安装专项使用隔离 Codex profile，不能替代干净 Windows 环境认证。
+- 本阶段保留原有 39 项测试，当前共 **88 项 xUnit**；原有自测 **80 项**；隔离安装专项 **16 项**。隔离 Codex profile 不能替代干净 Windows 环境认证。
 - 安装包由 `scripts/Build-Release.ps1` 生成到 artifacts，按当前用户安装。未签名，许可证沿用现有 manifest 的 Proprietary 状态，公开发布前需维护者确认法律文本与隐私联系信息。
 
 Phase 4 下方的 39 项统计和 ephemeral Thread 描述属于历史基线；当前恢复行为以 Phase 5 文档为准。
+
+5G～5J 已完成后台恢复、部分真实桌面验收、更新元数据显示与筛选控件对比度修正、SQLite 一致性升级备份和回滚失败保留、发布包审计。标准安装和完整工具浮窗 UI 仍有未通过/未测试项，最新状态见 [最终验收记录](docs/PHASE-5GJ-ACCEPTANCE.md)。发布产物仍为未签名 Preview，附 SHA256SUMS 与 release.json，不代表正式发布通过。
 
 ## 技术路线
 

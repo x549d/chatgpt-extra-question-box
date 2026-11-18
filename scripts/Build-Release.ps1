@@ -22,8 +22,17 @@ if ($LASTEXITCODE -ne 0) { throw 'Release publish failed.' }
 Get-ChildItem -LiteralPath (Join-Path $plugin 'bin') -Filter *.pdb | Remove-Item
 New-Item -ItemType Directory -Path (Join-Path $stage 'scripts') -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Manage-Installation.ps1') -Destination (Join-Path $stage 'scripts\Manage-Installation.ps1')
-Copy-Item -LiteralPath (Join-Path $repo 'docs') -Destination (Join-Path $stage 'docs') -Recurse
-foreach ($name in @('README.md','LICENSE','PRIVACY.md','CHANGELOG.md')) { Copy-Item -LiteralPath (Join-Path $repo $name) -Destination $stage }
+New-Item -ItemType Directory -Path (Join-Path $stage 'docs') -Force | Out-Null
+foreach ($name in @('INSTALLATION.md','USER-GUIDE.md','TROUBLESHOOTING.md','SECURITY.md','SIGNING-PLAN.md')) {
+    Copy-Item -LiteralPath (Join-Path $repo ('docs\' + $name)) -Destination (Join-Path $stage 'docs')
+}
+Copy-Item -LiteralPath (Join-Path $repo 'docs\RELEASE-README.md') -Destination (Join-Path $stage 'README.md')
+foreach ($name in @('LICENSE','PRIVACY.md','CHANGELOG.md')) { Copy-Item -LiteralPath (Join-Path $repo $name) -Destination $stage }
+$revision = (& git -c "safe.directory=$($repo.Replace('\','/'))" -C $repo rev-parse HEAD | Out-String).Trim()
+if ($LASTEXITCODE -ne 0) { throw 'Cannot record release source revision.' }
+$dirty = ![string]::IsNullOrWhiteSpace((& git -c "safe.directory=$($repo.Replace('\','/'))" -C $repo status --porcelain | Out-String))
+@{version=$version;channel='preview';source_commit=$revision;source_dirty=$dirty;signature='NotSigned';formal_release_ready=$false} |
+    ConvertTo-Json | Set-Content -LiteralPath (Join-Path $stage 'release.json') -Encoding UTF8
 $hashes = Get-ChildItem -LiteralPath $stage -Recurse -File | ForEach-Object { @{path=$_.FullName.Substring($stage.Length+1);sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash} }
 $hashes | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $stage 'SHA256.json') -Encoding UTF8
 $portable = Join-Path $artifacts "ContextNotesNative-$version-portable.zip"
@@ -35,4 +44,6 @@ if (!$Compiler) { throw 'Inno Setup compiler missing. Install the official compi
 if ($LASTEXITCODE -ne 0) { throw 'Inno Setup compilation failed.' }
 $setup = Join-Path $artifacts "ContextNotesNative-$version-setup.exe"
 (Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash | Set-Content -LiteralPath ($setup + '.sha256') -Encoding ASCII
+@($setup,$portable) | ForEach-Object { (Get-FileHash -LiteralPath $_ -Algorithm SHA256).Hash + '  ' + [IO.Path]::GetFileName($_) } |
+    Set-Content -LiteralPath (Join-Path $artifacts 'SHA256SUMS') -Encoding ASCII
 Write-Output "PASS release_setup=$setup payload=$stage"

@@ -1,5 +1,9 @@
 # 故障排查
 
+- HKCU 预检拒绝 / ShellExecuteW=5：安装器没有要求 HKLM 或管理员权限。父键可写并不证明当前安装器执行路径允许同样的写入；不要据此修改 ACL、关闭保护或绕过安全提示。保留安装日志，在允许执行该程序的正常桌面或独立测试环境补验；便携管理器是独立的已验证路径。
+- 升级回滚也失败：错误会给出 `%LOCALAPPDATA%\ContextNotesNative\backups\install-recovery-*` 路径。保留该目录；修复原注册来源与启动条件后，用明确校验过的一致性备份恢复。新 `--history-backup <source> <destination>` 命令不迁移源 schema；指向现有目的库会替换其内容，必须先停止自有后台并保护目的库，不要对用户原库盲试。
+- 自动验收接口无法选择工具浮窗：不改变 WS_EX_TOOLWINDOW 产品行为来伪造可操作性，也不构造窗口 ID。请人工完成该部分，记录实际结果；单元测试不能替代 UI 验收。
+
 - 未出现选区按钮：检查 Codex 为 Chat 模式且选中助手回答，确认 `SelectionProbe.dll --status` 和 `--watcher-status`。非交互桌面会明确拒绝启动；应由 WinSta0\Default 中的启动监视器重新拉起。
 - 历史窗口：Ctrl+Alt+H 被其他程序占用时，用旁注按钮、选区入口右键菜单或开始菜单入口。
 - 账号不匹配：旧账号历史保留，请在官方 Codex 客户端自行切换账号；工具不会操作登录对话框、提取 Token 或复制认证文件。

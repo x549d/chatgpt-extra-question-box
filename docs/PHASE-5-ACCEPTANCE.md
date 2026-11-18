@@ -1,5 +1,7 @@
 # Phase 5 交付与验收报告
 
+> 本页是 Phase 5A～5F 的历史快照（截至 310ff36），下文“后台未运行”等状态不代表当前部署。2026-11-18 后续已经恢复运行并完成新增检查；当前结果、最终构建和未完成门禁见 [Phase 5G～5J 报告](PHASE-5GJ-ACCEPTANCE.md)。不以历史测试替代本轮完整桌面验收。
+
 日期：2026-11-18（Asia/Shanghai）。基线 `24dde22`，代码交付提交 `4adcb61`。最终文档提交为本报告所在的 `docs: record phase 5 delivery and acceptance limits` 提交；完整最终哈希见 `git log -1` 及本次交付回复。未 push，未创建 Tag。
 
 ## 1. 项目状态

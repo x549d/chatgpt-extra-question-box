@@ -112,7 +112,9 @@ try {
         if ([version]$installed.version -gt [version]$manifest.version) { throw 'A newer version is already installed; downgrade refused.' }
     }
     Stop-OwnedProcesses
-    $rollback = Join-Path ([IO.Path]::GetTempPath()) ('context-notes-rollback-' + [Guid]::NewGuid().ToString('N'))
+    $rollbackRoot = Join-Path $env:LOCALAPPDATA 'ContextNotesNative\backups'
+    New-Item -ItemType Directory -Path $rollbackRoot -Force | Out-Null
+    $rollback = Join-Path $rollbackRoot ('install-recovery-' + [Guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $rollback -Force | Out-Null
     $rollbackSafeToRemove = $false
     $database = Join-Path $DataRoot 'history.db'
@@ -183,7 +185,7 @@ try {
         }
         throw $failure
     } finally {
-        $ownedRollback = Assert-Child $rollback ([IO.Path]::GetTempPath())
+        $ownedRollback = Assert-Child $rollback $rollbackRoot
         if ($rollbackSafeToRemove -and (Test-Path -LiteralPath $ownedRollback)) { Remove-Item -LiteralPath $ownedRollback -Recurse -Force }
         elseif (Test-Path -LiteralPath $ownedRollback) { Write-Warning "Recovery backup retained: $ownedRollback" }
     }
