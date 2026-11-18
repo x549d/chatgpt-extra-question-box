@@ -81,6 +81,14 @@ public sealed class Phase5StabilityTests(ITestOutputHelper output) : IDisposable
         Assert.Equal(AnnotationGenerationState.Failed, await service.AskAsync(item, "must survive"));
         Assert.Empty(fake.ReceivedTurns); Assert.Equal("must survive", item.Messages[0].Text); Assert.False(item.Messages[1].IsCommittedHistory);
     }
+    [Fact] public async Task UnconfirmedTurnStatusCannotBecomeCompletedHistory()
+    {
+        using var fake = new FakeCodexAppServer(); using var service = new AnnotationService(() => fake.Transport);
+        fake.CustomTurnHandler = async (thread, turn, _, server) => await server.WriteServerLineAsync(System.Text.Json.JsonSerializer.Serialize(new { method = "turn/completed", @params = new { threadId = thread, turn = new { id = turn, status = "unknown" } } }));
+        var item = Phase5HistoryTests.Item(); item.AccountScopeId = null; item.ThreadId = null;
+        Assert.Equal(AnnotationGenerationState.Failed, await service.AskAsync(item, "test"));
+        Assert.False(item.Messages.Last().IsCommittedHistory);
+    }
     [Fact] public async Task RepeatedConcurrentGenerationAndCancellationKeepTerminalStatesStable()
     {
         for (int repeat = 0; repeat < 5; repeat++)

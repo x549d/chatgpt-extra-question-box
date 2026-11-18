@@ -1,0 +1,162 @@
+[CmdletBinding()]
+param(
+    [ValidateSet('Check','Install','Uninstall')][string]$Action = 'Check',
+    [string]$PayloadRoot = (Split-Path -Parent $PSScriptRoot),
+    [string]$ProfileRoot = $(if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE '.codex' }),
+    [string]$DataRoot = (Join-Path $env:LOCALAPPDATA 'ContextNotesNative\data'),
+    [string]$StartupRoot = [Environment]::GetFolderPath('Startup'),
+    [string]$CodexPath,
+    [switch]$SkipLaunch,
+    [switch]$RemoveHistory,
+    [switch]$InjectFailure
+)
+$ErrorActionPreference = 'Stop'
+$PayloadRoot = [IO.Path]::GetFullPath($PayloadRoot)
+$ProfileRoot = [IO.Path]::GetFullPath($ProfileRoot)
+$DataRoot = [IO.Path]::GetFullPath($DataRoot)
+$marketplace = Join-Path $PayloadRoot 'codex-plugin'
+$plugin = Join-Path $marketplace 'plugins\context-notes'
+$manifest = Get-Content -LiteralPath (Join-Path $plugin '.codex-plugin\plugin.json') -Raw | ConvertFrom-Json
+if ($manifest.name -ne 'context-notes' -or $manifest.version -notmatch '^\d+\.\d+\.\d+$') { throw 'Invalid owned plugin manifest.' }
+$dll = Join-Path $plugin 'bin\SelectionProbe.dll'
+$cacheRoot = [IO.Path]::GetFullPath((Join-Path $ProfileRoot 'plugins\cache\context-notes-native\context-notes'))
+$shortcut = Join-Path $StartupRoot 'Context Notes Native - Codex Startup.lnk'
+$stateFile = Join-Path $ProfileRoot 'context-notes-installation.json'
+if (!$CodexPath) { $command = Get-Command codex -ErrorAction SilentlyContinue; if ($command) { $CodexPath = $command.Source } }
+if (!$CodexPath) { $CodexPath = Get-ChildItem (Join-Path $env:LOCALAPPDATA 'OpenAI\Codex\bin') -Recurse -Filter codex.exe -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName }
+if (!$CodexPath) { throw 'Codex Desktop / CLI was not found. Install Codex Desktop first.' }
+if ([Environment]::OSVersion.Version.Major -lt 10) { throw 'Windows 10 or 11 is required.' }
+if (!(@(& dotnet --list-runtimes) -match '^Microsoft.WindowsDesktop.App 10\.')) { throw '.NET 10 Windows Desktop Runtime x64 is required.' }
+if (!(Test-Path -LiteralPath $dll)) { throw 'Published application payload is missing.' }
+
+function Invoke-Codex([string[]]$Arguments) {
+    $result = & $CodexPath @Arguments 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0) { throw ('Codex plugin command failed: ' + ($Arguments -join ' ')) }
+    return $result
+}
+function Invoke-Helper([string[]]$Arguments, [int[]]$Allowed = @(0)) {
+    $result = & dotnet $dll @Arguments 2>&1 | Out-String
+    if ($LASTEXITCODE -notin $Allowed) { throw ('Context Notes command failed: ' + $Arguments[0]) }
+    return $result
+}
+function Assert-Child([string]$Child, [string]$Parent) {
+    $full = [IO.Path]::GetFullPath($Child); $basePath = [IO.Path]::GetFullPath($Parent).TrimEnd('\') + '\'
+    if (!$full.StartsWith($basePath, [StringComparison]::OrdinalIgnoreCase)) { throw 'Refusing filesystem action outside the owned directory.' }
+    return $full
+}
+function Stop-OwnedProcesses {
+    if ($SkipLaunch) { return }
+    [void](Invoke-Helper @('--stop-watcher') @(0,3)); [void](Invoke-Helper @('--stop') @(0,3))
+    $deadline = [DateTime]::UtcNow.AddSeconds(15)
+    do {
+        $running = @(Get-CimInstance Win32_Process -Filter "name='SelectionProbe.exe'" | Where-Object {
+            $_.ExecutablePath -and ($_.ExecutablePath.StartsWith($cacheRoot + '\', [StringComparison]::OrdinalIgnoreCase) -or $_.ExecutablePath.StartsWith($plugin + '\', [StringComparison]::OrdinalIgnoreCase))
+        })
+        if (!$running.Count) { return }
+        Start-Sleep -Milliseconds 200
+    } while ([DateTime]::UtcNow -lt $deadline)
+    throw 'Existing Companion or watcher has not stopped; no files were overwritten.'
+}
+if ($Action -eq 'Install') {
+    $hashFile = Join-Path $PayloadRoot 'SHA256.json'
+    if (!(Test-Path -LiteralPath $hashFile)) { throw 'Release payload hash manifest is missing.' }
+    foreach ($entry in (Get-Content -LiteralPath $hashFile -Raw | ConvertFrom-Json)) {
+        $sourceFile = Assert-Child (Join-Path $PayloadRoot $entry.path) $PayloadRoot
+        if ($entry.sha256 -notmatch '^[A-Fa-f0-9]{64}$' -or (Get-FileHash -LiteralPath $sourceFile -Algorithm SHA256).Hash -ne $entry.sha256) { throw 'Release payload integrity check failed before deployment.' }
+    }
+}
+function Set-Shortcut([string]$Binary) {
+    New-Item -ItemType Directory -Path $StartupRoot -Force | Out-Null
+    if (Test-Path -LiteralPath $shortcut) {
+        $existing = (New-Object -ComObject WScript.Shell).CreateShortcut($shortcut)
+        if ($existing.Arguments -ne '--watch-codex' -or !$existing.TargetPath.StartsWith($cacheRoot + '\', [StringComparison]::OrdinalIgnoreCase)) { throw 'Startup shortcut is not owned by Context Notes.' }
+    }
+    $link = (New-Object -ComObject WScript.Shell).CreateShortcut($shortcut)
+    $link.TargetPath = $Binary; $link.Arguments = '--watch-codex'; $link.WorkingDirectory = Split-Path -Parent $Binary
+    $link.Description = 'Context Notes: start only with verified Codex Desktop'; $link.Save()
+}
+$previousCodexHome = $env:CODEX_HOME
+$env:CODEX_HOME = $ProfileRoot
+try {
+    if ($Action -eq 'Check') { Write-Output ('PASS prerequisites version=' + $manifest.version); return }
+    $sources = (Invoke-Codex @('plugin','marketplace','list','--json') | ConvertFrom-Json).marketplaces
+    $previous = $sources | Where-Object { $_.name -eq 'context-notes-native' } | Select-Object -First 1
+    if ($Action -eq 'Uninstall') {
+        Stop-OwnedProcesses
+        if ($previous) {
+            [void](Invoke-Codex @('plugin','remove','context-notes@context-notes-native','--json'))
+            [void](Invoke-Codex @('plugin','marketplace','remove','context-notes-native'))
+        }
+        if (Test-Path -LiteralPath $shortcut) {
+            $link = (New-Object -ComObject WScript.Shell).CreateShortcut($shortcut)
+            if ($link.TargetPath.StartsWith($cacheRoot + '\', [StringComparison]::OrdinalIgnoreCase) -and $link.Arguments -eq '--watch-codex') { Remove-Item -LiteralPath $shortcut }
+        }
+        if (Test-Path -LiteralPath $stateFile) { Remove-Item -LiteralPath $stateFile }
+        if ($RemoveHistory) {
+            $expectedData = [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'ContextNotesNative\data'))
+            if ($DataRoot -ne $expectedData -and !$SkipLaunch) { throw 'Refusing removal outside the current user history directory.' }
+            # Delete only known application database files, never an arbitrary recursive data tree.
+            if (Test-Path -LiteralPath $DataRoot) { Get-ChildItem -LiteralPath $DataRoot -File | Where-Object { $_.Name -match '^history\.db(?:-wal|-shm|\.backup\.db|\.pre-v\d+\.db)?$' } | ForEach-Object { Remove-Item -LiteralPath (Assert-Child $_.FullName $DataRoot) } }
+        }
+        Write-Output ('PASS uninstall history_preserved=' + (!$RemoveHistory)); return
+    }
+    if (Test-Path -LiteralPath $stateFile) {
+        $installed = Get-Content -LiteralPath $stateFile -Raw | ConvertFrom-Json
+        if ([version]$installed.version -gt [version]$manifest.version) { throw 'A newer version is already installed; downgrade refused.' }
+    }
+    Stop-OwnedProcesses
+    $rollback = Join-Path ([IO.Path]::GetTempPath()) ('context-notes-rollback-' + [Guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $rollback -Force | Out-Null
+    $hadData = Test-Path -LiteralPath $DataRoot
+    $hadShortcut = Test-Path -LiteralPath $shortcut
+    $hadState = Test-Path -LiteralPath $stateFile
+    $hadCache = Test-Path -LiteralPath $cacheRoot
+    if ($hadData) { Copy-Item -LiteralPath $DataRoot -Destination (Join-Path $rollback 'data') -Recurse }
+    if ($hadCache) { Copy-Item -LiteralPath $cacheRoot -Destination (Join-Path $rollback 'cache') -Recurse }
+    if (Test-Path -LiteralPath $shortcut) { Copy-Item -LiteralPath $shortcut -Destination (Join-Path $rollback 'startup.lnk') }
+    if (Test-Path -LiteralPath $stateFile) { Copy-Item -LiteralPath $stateFile -Destination (Join-Path $rollback 'state.json') }
+    $changedSource = $false
+    try {
+        [void](Invoke-Helper @('--history-check', (Join-Path $DataRoot 'history.db')))
+        if ($previous -and $previous.root -ne $marketplace) { [void](Invoke-Codex @('plugin','marketplace','remove','context-notes-native')); $changedSource = $true }
+        if (!$previous -or $changedSource) { [void](Invoke-Codex @('plugin','marketplace','add',$marketplace)) }
+        [void](Invoke-Codex @('plugin','add','context-notes@context-notes-native','--json'))
+        $cachedPlugin = Join-Path $cacheRoot $manifest.version
+        foreach ($file in Get-ChildItem -LiteralPath $plugin -Recurse -File) {
+            $relative = $file.FullName.Substring($plugin.Length).TrimStart('\'); $dest = Join-Path $cachedPlugin $relative
+            if (!(Test-Path -LiteralPath $dest) -or (Get-FileHash -LiteralPath $file.FullName).Hash -ne (Get-FileHash -LiteralPath $dest).Hash) { throw 'Deployed plugin hash mismatch.' }
+        }
+        $hooks = Get-Content -LiteralPath (Join-Path $cachedPlugin 'hooks\hooks.json') -Raw | ConvertFrom-Json
+        if (!$hooks.hooks.SessionStart) { throw 'Installed SessionStart hook missing.' }
+        if ($InjectFailure) { throw 'Injected installation failure for rollback test.' }
+        $binary = Join-Path $cachedPlugin 'bin\SelectionProbe.exe'; Set-Shortcut $binary
+        if (!$SkipLaunch) {
+            Start-Process -FilePath $binary -ArgumentList '--launch-watcher' -WindowStyle Hidden -Wait
+            [void](Invoke-Helper @('--watcher-status'))
+            [void](Invoke-Helper @('--relaunch-companion'))
+        }
+        @{version=$manifest.version;marketplace=$marketplace;cache=$cachedPlugin} | ConvertTo-Json | Set-Content -LiteralPath $stateFile -Encoding UTF8
+        Write-Output ('PASS installation version=' + $manifest.version + ' hashes_verified=true hook_manifest_verified=true desktop_selection_requires_ui_check=true')
+    } catch {
+        $failure = $_
+        if ($changedSource -or !$previous) {
+            try { [void](Invoke-Codex @('plugin','remove','context-notes@context-notes-native','--json')) } catch { }
+            try { [void](Invoke-Codex @('plugin','marketplace','remove','context-notes-native')) } catch { }
+            if ($previous) { [void](Invoke-Codex @('plugin','marketplace','add',$previous.root)); [void](Invoke-Codex @('plugin','add','context-notes@context-notes-native','--json')) }
+        }
+        if ($hadData) { Copy-Item -Path (Join-Path $rollback 'data\*') -Destination $DataRoot -Force }
+        if ($hadCache) {
+            New-Item -ItemType Directory -Path $cacheRoot -Force | Out-Null
+            Copy-Item -Path (Join-Path $rollback 'cache\*') -Destination $cacheRoot -Recurse -Force
+        }
+        if (!$hadShortcut -and (Test-Path -LiteralPath $shortcut)) { Remove-Item -LiteralPath $shortcut }
+        if (!$hadState -and (Test-Path -LiteralPath $stateFile)) { Remove-Item -LiteralPath $stateFile }
+        if (Test-Path -LiteralPath (Join-Path $rollback 'startup.lnk')) { Copy-Item -LiteralPath (Join-Path $rollback 'startup.lnk') -Destination $shortcut -Force }
+        if (Test-Path -LiteralPath (Join-Path $rollback 'state.json')) { Copy-Item -LiteralPath (Join-Path $rollback 'state.json') -Destination $stateFile -Force }
+        if (!$SkipLaunch -and $previous) { Start-Process -FilePath (Join-Path $previous.root 'plugins\context-notes\bin\SelectionProbe.exe') -ArgumentList '--launch-watcher' -WindowStyle Hidden }
+        throw $failure
+    } finally {
+        $ownedRollback = Assert-Child $rollback ([IO.Path]::GetTempPath())
+        if (Test-Path -LiteralPath $ownedRollback) { Remove-Item -LiteralPath $ownedRollback -Recurse -Force }
+    }
+} finally { $env:CODEX_HOME = $previousCodexHome }

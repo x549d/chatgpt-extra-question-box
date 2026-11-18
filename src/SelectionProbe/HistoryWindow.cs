@@ -31,6 +31,7 @@ internal sealed class HistoryWindow : Window
     {
         this.history = history; this.service = service; this.restore = restore;
         this.closeAnnotation = closeAnnotation;
+        DarkTheme.Apply(this);
         Title = "Context Notes · 旁注历史"; Width = 760; Height = 540; MinWidth = 620; MinHeight = 440;
         Background = new SolidColorBrush(Color.FromRgb(35, 36, 40)); Foreground = Brushes.Gainsboro;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
@@ -117,6 +118,13 @@ internal sealed class HistoryWindow : Window
         {
             var account = await service.ReadCurrentAccountAsync();
             if (closed) return;
+            if (r.AccountScope == "" && r.ThreadId is null && account.Status == AppServerLoginStatus.LoggedIn)
+            {
+                if (MessageBox.Show(this, "此旁注创建时未能确认账号，尚无关联 Thread。是否归入当前账号并恢复？", "恢复未绑定的草稿", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) != MessageBoxResult.Yes) return;
+                r = r with { AccountScope = account.ScopeFingerprint };
+                var claimed = r;
+                await Task.Run(() => history.Database.Save(claimed));
+            }
             if (account.Status != AppServerLoginStatus.LoggedIn || r.AccountScope != account.ScopeFingerprint)
             { notice.Text = "账号不匹配，请在 Codex 切换至该旁注所属账号后恢复。"; return; }
             restore(r);

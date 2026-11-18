@@ -469,12 +469,12 @@ internal sealed class AnnotationService : IDisposable
 
     private void HandleTurnCompleted(ActiveTurnSession session, JsonElement parameters)
     {
-        string status = "completed";
+        string status = "unknown";
         string? errorMsg = null;
         if (parameters.TryGetProperty("turn", out JsonElement turnObj) && turnObj.ValueKind == JsonValueKind.Object)
         {
             if (turnObj.TryGetProperty("status", out JsonElement stProp) && stProp.ValueKind == JsonValueKind.String)
-                status = stProp.GetString() ?? "completed";
+                status = stProp.GetString() ?? "unknown";
             if (turnObj.TryGetProperty("error", out JsonElement errObj)
                 && errObj.ValueKind == JsonValueKind.Object
                 && errObj.TryGetProperty("message", out JsonElement msgProp))
@@ -493,6 +493,10 @@ internal sealed class AnnotationService : IDisposable
         {
             FailTurn(session, errorMsg ?? session.LastRecordedError ?? "AI 请求未成功完成，请重试。", "turn_failed");
             return;
+        }
+        if (status != "completed")
+        {
+            FailTurn(session, "服务端未确认本轮完整完成，已保留输出，请重试。", "unconfirmed_completion"); return;
         }
 
         if (!session.TryFinalize()) return;

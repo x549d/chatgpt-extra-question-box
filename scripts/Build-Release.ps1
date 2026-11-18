@@ -1,0 +1,38 @@
+[CmdletBinding()]
+param([string]$Compiler, [switch]$SkipTests)
+$ErrorActionPreference = 'Stop'
+$repo = Split-Path -Parent $PSScriptRoot
+$artifacts = Join-Path $repo 'artifacts'
+$stage = Join-Path $artifacts ('payload-' + [Guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $stage -Force | Out-Null
+if (!$SkipTests) {
+    dotnet test (Join-Path $repo 'ChatGptContextNotesNative.sln') -c Release
+    if ($LASTEXITCODE -ne 0) { throw 'Release tests failed.' }
+}
+$marketplace = Join-Path $stage 'codex-plugin'
+New-Item -ItemType Directory -Path $marketplace -Force | Out-Null
+Copy-Item -LiteralPath (Join-Path $repo 'codex-plugin\.agents') -Destination (Join-Path $marketplace '.agents') -Recurse
+$plugin = Join-Path $marketplace 'plugins\context-notes'
+New-Item -ItemType Directory -Path $plugin -Force | Out-Null
+Copy-Item -LiteralPath (Join-Path $repo 'codex-plugin\plugins\context-notes\.codex-plugin') -Destination (Join-Path $plugin '.codex-plugin') -Recurse
+Copy-Item -LiteralPath (Join-Path $repo 'codex-plugin\plugins\context-notes\hooks') -Destination (Join-Path $plugin 'hooks') -Recurse
+$version = (Get-Content -LiteralPath (Join-Path $plugin '.codex-plugin\plugin.json') -Raw | ConvertFrom-Json).version
+dotnet publish (Join-Path $repo 'src\SelectionProbe\SelectionProbe.csproj') -c Release -r win-x64 --no-self-contained -o (Join-Path $plugin 'bin')
+if ($LASTEXITCODE -ne 0) { throw 'Release publish failed.' }
+Get-ChildItem -LiteralPath (Join-Path $plugin 'bin') -Filter *.pdb | Remove-Item
+New-Item -ItemType Directory -Path (Join-Path $stage 'scripts') -Force | Out-Null
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Manage-Installation.ps1') -Destination (Join-Path $stage 'scripts\Manage-Installation.ps1')
+Copy-Item -LiteralPath (Join-Path $repo 'docs') -Destination (Join-Path $stage 'docs') -Recurse
+foreach ($name in @('README.md','LICENSE','PRIVACY.md','CHANGELOG.md')) { Copy-Item -LiteralPath (Join-Path $repo $name) -Destination $stage }
+$hashes = Get-ChildItem -LiteralPath $stage -Recurse -File | ForEach-Object { @{path=$_.FullName.Substring($stage.Length+1);sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash} }
+$hashes | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $stage 'SHA256.json') -Encoding UTF8
+$portable = Join-Path $artifacts "ContextNotesNative-$version-portable.zip"
+Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $portable -Force
+(Get-FileHash -LiteralPath $portable -Algorithm SHA256).Hash | Set-Content -LiteralPath ($portable + '.sha256') -Encoding ASCII
+if (!$Compiler) { foreach ($candidate in @('<local-inno-setup>\ISCC.exe',"${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe","$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe")) { if (Test-Path -LiteralPath $candidate) { $Compiler = $candidate; break } } }
+if (!$Compiler) { throw 'Inno Setup compiler missing. Install the official compiler, then pass -Compiler path\ISCC.exe.' }
+& $Compiler "/DPayloadDir=$stage" "/DProductVersion=$version" (Join-Path $repo 'installer\ContextNotes.iss')
+if ($LASTEXITCODE -ne 0) { throw 'Inno Setup compilation failed.' }
+$setup = Join-Path $artifacts "ContextNotesNative-$version-setup.exe"
+(Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash | Set-Content -LiteralPath ($setup + '.sha256') -Encoding ASCII
+Write-Output "PASS release_setup=$setup payload=$stage"

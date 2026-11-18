@@ -53,6 +53,11 @@ internal static class Companion
             {
                 using var history = new HistoryPersistence(new HistoryDatabase(HistoryDatabase.DefaultPath));
                 using var overlay = new OverlayHost(history: history);
+                using var historyRequested = new EventWaitHandle(false, EventResetMode.AutoReset, name + ".history");
+                RegisteredWaitHandle historyRegistration = ThreadPool.RegisterWaitForSingleObject(historyRequested,
+                    (_, _) => overlay.RequestHistory(), null, Timeout.Infinite, executeOnlyOnce: false);
+                try
+                {
                 while (!cancellation.IsCancellationRequested)
                 {
                     try
@@ -68,6 +73,12 @@ internal static class Companion
                         overlay.Publish(null, "monitor_restart");
                         cancellation.Token.WaitHandle.WaitOne(RestartDelay);
                     }
+                }
+                }
+                finally
+                {
+                    using var released = new ManualResetEvent(false);
+                    if (historyRegistration.Unregister(released)) released.WaitOne();
                 }
             }
             finally
@@ -87,6 +98,20 @@ internal static class Companion
     }
 
     private static string stopReason = "stop_requested";
+
+    public static int ShowHistory()
+    {
+        if (EventWaitHandle.TryOpenExisting(SessionName + ".history", out var requested))
+        { using (requested) requested.Set(); return 0; }
+        int result = Launch(); if (result != 0) return result;
+        for (int attempt = 0; attempt < 20; attempt++)
+        {
+            if (EventWaitHandle.TryOpenExisting(SessionName + ".history", out requested))
+            { using (requested) requested.Set(); return 0; }
+            Thread.Sleep(100);
+        }
+        return 3;
+    }
     private static long codexAbsentSince;
 
     private static void WatchCodex(CancellationTokenSource cancellation)

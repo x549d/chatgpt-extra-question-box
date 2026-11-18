@@ -1,3 +1,9 @@
 bin/
 obj/
 codex-plugin/plugins/context-notes/bin/
+artifacts/
+TestResults/
+*.db
+*.db-wal
+*.db-shm
+*.trx

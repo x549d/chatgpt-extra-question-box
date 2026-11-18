@@ -1,5 +1,7 @@
 # Codex App Server 接入架构（`APP-SERVER-ARCHITECTURE.md`）
 
+> Phase 5 更新：生产旁注使用 durable Thread（ephemeral=false）、本地 SQLite 历史和 thread/resume；不可用的旧 Thread 必须明确确认新上下文。下面的 ephemeral=true 描述保留为 Phase 4 历史设计，当前实现见 [Phase 5](PHASE-5-PRODUCT.md)。
+
 本文档说明 `ChatGPT Context Notes Native` 在 Phase 4 中如何复用本机已登录的 Codex Desktop 账号，通过官方 `codex.exe app-server`（stdio JSON-RPC 2.0）为划词旁注小框提供实时流式 AI 问答与连续追问能力。
 
 ---

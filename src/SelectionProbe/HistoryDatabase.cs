@@ -17,9 +17,9 @@ internal sealed class HistoryDatabase : IDisposable
     {
         FilePath = Path.GetFullPath(path);
         Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
-        Check(Native.sqlite3_open_v2(FilePath, out db, 6 | 0x10000, 0));
         try
         {
+            Check(Native.sqlite3_open_v2(FilePath, out db, 6 | 0x10000, 0));
             Native.sqlite3_busy_timeout(db, 1200);
             Execute("PRAGMA foreign_keys=ON");
             int version = int.Parse(Query("PRAGMA user_version")[0][0]!);
@@ -27,6 +27,7 @@ internal sealed class HistoryDatabase : IDisposable
             if (Query("PRAGMA quick_check")[0][0] != "ok") throw new InvalidDataException("History integrity check failed. Original files have been preserved.");
             Execute("PRAGMA journal_mode=WAL");
             Execute("PRAGMA synchronous=FULL");
+            if (version == SchemaVersion) return;
             if (version is > 0 and < SchemaVersion) Backup(FilePath + ".pre-v" + SchemaVersion + ".db");
             Transaction(() =>
             {
@@ -76,7 +77,7 @@ internal sealed class HistoryDatabase : IDisposable
         lock (gate)
         {
             var rows = Query("SELECT payload,title,archived,deleted FROM annotations a WHERE account_scope=? AND deleted=? AND (?='-1' OR archived=?) AND (?='' OR created_at>=?) AND (?='' OR created_at<?) AND (?='' OR instr(lower(selected_text),lower(?))>0 OR instr(lower(title),lower(?))>0 OR EXISTS(SELECT 1 FROM messages m WHERE m.annotation_id=a.id AND instr(lower(m.content),lower(?))>0)) ORDER BY updated_at DESC LIMIT ? OFFSET ?",
-                accountScope, deleted ? "1" : "0", archive.ToString(), archive.ToString(), since?.ToString("O") ?? "", since?.ToString("O"), until?.ToString("O") ?? "", until?.ToString("O"), search, search, search, search, Math.Clamp(limit, 1, 500).ToString(), Math.Max(offset, 0).ToString());
+                accountScope, deleted ? "1" : "0", archive.ToString(), archive.ToString(), since?.ToUniversalTime().ToString("O") ?? "", since?.ToUniversalTime().ToString("O"), until?.ToUniversalTime().ToString("O") ?? "", until?.ToUniversalTime().ToString("O"), search, search, search, search, Math.Clamp(limit, 1, 500).ToString(), Math.Max(offset, 0).ToString());
             return rows.Select(row =>
             {
                 var r = JsonSerializer.Deserialize<HistoryRecord>(row[0]!)!;
@@ -102,7 +103,7 @@ internal sealed class HistoryDatabase : IDisposable
     {
         lock (gate)
         {
-            if (Path.GetFullPath(destination) == FilePath) throw new ArgumentException("Backup must use a different path.");
+            if (string.Equals(Path.GetFullPath(destination), FilePath, StringComparison.OrdinalIgnoreCase)) throw new ArgumentException("Backup must use a different path.");
             nint target = 0;
             try
             {

@@ -45,6 +45,7 @@ internal sealed class ModelWindow : Window
     public ModelWindow(AnnotationService service, AnnotationItem? annotation = null)
     {
         this.service = service; this.annotation = annotation;
+        DarkTheme.Apply(this);
         Title = "Context Notes · 模型与用量"; Width = 500; Height = 360; Background = new SolidColorBrush(Color.FromRgb(35, 36, 40)); Foreground = Brushes.Gainsboro;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         var panel = new StackPanel { Margin = new Thickness(18) }; Content = panel;

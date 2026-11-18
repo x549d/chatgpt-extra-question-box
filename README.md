@@ -4,6 +4,17 @@
 
 完整需求见 [docs/PROJECT-SPEC.md](docs/PROJECT-SPEC.md)。
 
+## Phase 5 / 0.3.0 预览版
+
+新增本地 SQLite 历史、恢复原 Thread、历史搜索/归档/回收站、Markdown 与代码复制、真实模型目录和用量状态。按 **Ctrl+Alt+H** 打开历史；数据库位于 `%LOCALAPPDATA%\ContextNotesNative\data`。退出不会清空问答，恢复不会自动重发问题。
+
+- [使用说明](docs/USER-GUIDE.md) · [安装与更新](docs/INSTALLATION.md) · [故障排查](docs/TROUBLESHOOTING.md)
+- [实现和测试记录](docs/PHASE-5-PRODUCT.md) · [安全说明](docs/SECURITY.md) · [隐私信息草案](PRIVACY.md)
+- 本阶段保留原有 39 项测试，当前共 **85 项 xUnit**；原有自测 **80 项**。安装专项使用隔离 Codex profile，不能替代干净 Windows 环境认证。
+- 安装包由 `scripts/Build-Release.ps1` 生成到 artifacts，按当前用户安装。未签名，许可证沿用现有 manifest 的 Proprietary 状态，公开发布前需维护者确认法律文本与隐私联系信息。
+
+Phase 4 下方的 39 项统计和 ephemeral Thread 描述属于历史基线；当前恢复行为以 Phase 5 文档为准。
+
 ## 技术路线
 
 - .NET 10 + WPF + Windows UI Automation（UIA）+ Codex App Server（stdio JSON-RPC 2.0）。

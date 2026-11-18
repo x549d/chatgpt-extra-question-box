@@ -29,9 +29,22 @@ internal static class Program
                 return VerifyLiveAppServerAsync().GetAwaiter().GetResult();
             if (args is ["--phase5-crash-fixture", var crashPath])
                 return Phase5Diagnostics.CrashFixture(crashPath);
+            if (args is ["--history-check", var databasePath])
+            {
+                using var database = new HistoryDatabase(databasePath);
+                Console.WriteLine($"PASS history_integrity schema={HistoryDatabase.SchemaVersion}"); return 0;
+            }
+            if (args is ["--show-history"])
+                return Companion.ShowHistory();
             if (args is ["--phase5-live-prepare"] or ["--phase5-live-resume"])
                 return Phase5Diagnostics.LiveAsync(args[0] == "--phase5-live-resume").GetAwaiter().GetResult();
-            if (args.Length == 0 || args is ["--companion"])
+            if (args.Length == 0)
+            {
+                int watcher = DesktopStartup.LaunchWatcher();
+                if (watcher != 0) return watcher;
+                return Companion.Run();
+            }
+            if (args is ["--companion"])
                 return Companion.Run();
             if (args is ["--launch"])
                 return Companion.Launch();

@@ -77,6 +77,21 @@ internal sealed class OverlayHost : IDisposable
         thread.Start();
         dispatcher = ready.Task.GetAwaiter().GetResult();
         if (history is not null) dispatcher.Invoke(() => historyHotkey = new HistoryHotkey(ShowHistory));
+        if (history is not null) history.StatusChanged += OnHistoryStatusChanged;
+    }
+
+    private void OnHistoryStatusChanged(string? failure)
+    {
+        lock (updates)
+        {
+            if (disposed) return;
+            dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (disposed) return;
+                foreach (var popup in annotations.ToArray())
+                { popup.Item.PersistenceFailure = failure; popup.RefreshConversationUi(); }
+            }));
+        }
     }
 
     public bool PointerOverButton => NativeWindows.PointerOverWindow(Volatile.Read(ref handle));
@@ -448,6 +463,11 @@ internal sealed class OverlayHost : IDisposable
         catch (Exception) { Write("event=annotation_account_binding_deferred"); }
     }
 
+    public void RequestHistory()
+    {
+        lock (updates) { if (disposed) return; dispatcher.BeginInvoke(new Action(ShowHistory)); }
+    }
+
     private void ShowHistory()
     {
         if (history is null || disposed) return;
@@ -483,12 +503,13 @@ internal sealed class OverlayHost : IDisposable
         if (screen.WorkArea.IsValid) popup.StageOn(screen);
         var dpi = VisualTreeHelper.GetDpi(popup);
         var size = popup.MeasurePhysicalSize(dpi.DpiScaleX, dpi.DpiScaleY);
-        var position = record.Position.IsValid ? record.Position : item.LastOwnerBounds;
+        var position = record.Position.IsValid ? record.Position : new ScreenRectangle(item.LastOwnerBounds.X + 40 + annotations.Count * 32, item.LastOwnerBounds.Y + 100 + annotations.Count * 32, size.WidthPx, size.HeightPx);
         position = OverlayPlacement.ClampToArea(new ScreenRectangle(position.X, position.Y, size.WidthPx, size.HeightPx), screen.WorkArea.IsValid ? screen.WorkArea : item.LastOwnerBounds);
         annotations.Add(popup); RefreshAnnotationHandles();
         popup.Place(position); popup.Show(); popup.Place(position, true);
         item.RecordManualMove(position, item.LastOwnerBounds);
         popup.FocusInput();
+        Write($"event=history_annotation_restored annotation_id={item.AnnotationId} message_count={item.Messages.Count} requires_thread_resume={item.RequiresThreadResume}");
     }
 
     private void CloseHistoryAnnotation(string id)
@@ -729,6 +750,7 @@ internal sealed class OverlayHost : IDisposable
 
     public void Dispose()
     {
+        if (history is not null) history.StatusChanged -= OnHistoryStatusChanged;
         lock (updates)
             disposed = true;
         dispatcher.Invoke(() =>

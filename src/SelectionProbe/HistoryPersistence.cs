@@ -10,6 +10,12 @@ internal sealed class HistoryPersistence : IDisposable
     private bool disposed;
     public HistoryDatabase Database { get; }
     public string? LastFailure { get; private set; }
+    public event Action<string?>? StatusChanged;
+    private void SetFailure(string? failure)
+    {
+        if (LastFailure == failure) return;
+        LastFailure = failure; StatusChanged?.Invoke(failure);
+    }
     public HistoryPersistence(HistoryDatabase database)
     {
         Database = database;
@@ -36,13 +42,13 @@ internal sealed class HistoryPersistence : IDisposable
             {
                 foreach (var r in pending.Values) Database.Save(r);
                 pending.Clear();
-                LastFailure = null;
+                SetFailure(null);
                 return true;
             }
             catch (Exception e) when (e is System.IO.IOException or UnauthorizedAccessException)
             {
                 // Keep pending snapshots for retry. Neither exception text nor conversation is logged.
-                LastFailure = "历史暂未保存，请保持程序运行并检查磁盘空间及数据目录权限。";
+                SetFailure("历史暂未保存，请保持程序运行并检查磁盘空间及数据目录权限。");
                 return false;
             }
         }
