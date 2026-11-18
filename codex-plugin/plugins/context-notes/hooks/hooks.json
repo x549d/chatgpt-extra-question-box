@@ -1,0 +1,17 @@
+{
+  "description": "Starts the Context Notes selection helper when a Codex session starts. Produces no model context.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "exit 0",
+            "commandWindows": "cmd.exe /d /c call \"%PLUGIN_ROOT%\\hooks\\launch.cmd\"",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -32,7 +32,7 @@ internal sealed class ProbeMonitor(bool fixtures, bool exerciseTimeout, OverlayH
     public async Task RunAsync(TimeSpan duration, CancellationToken cancellation)
     {
         string limit = duration == Timeout.InfiniteTimeSpan ? "continuous" : $"{duration.TotalSeconds}";
-        Write($"ready seconds={limit} sample_ms={PollInterval.TotalMilliseconds} timeout_ms={RequestTimeout.TotalMilliseconds}");
+        Write($"ready pid={Environment.ProcessId} seconds={limit} sample_ms={PollInterval.TotalMilliseconds} timeout_ms={RequestTimeout.TotalMilliseconds}");
         try
         {
             while (!cancellation.IsCancellationRequested
@@ -58,7 +58,7 @@ internal sealed class ProbeMonitor(bool fixtures, bool exerciseTimeout, OverlayH
         WindowIdentity current = NativeWindows.Foreground();
         if (current != foreground)
         {
-            ResetWorker("foreground-change");
+            ResetWorker("not_foreground");
             foreground = current;
             isCodex = NativeWindows.IsCodex(foreground);
             windowBounds = default;
@@ -66,8 +66,8 @@ internal sealed class ProbeMonitor(bool fixtures, bool exerciseTimeout, OverlayH
             eventsUnavailable = false;
             nextSample = clock.Elapsed;
             Write(isCodex
-                ? $"foreground=codex hwnd=0x{foreground.Handle:X} pid={foreground.ProcessId}"
-                : $"foreground=inactive hwnd=0x{foreground.Handle:X} pid={foreground.ProcessId}; selection invalidated");
+                ? $"foreground_window=desktop hwnd=0x{foreground.Handle:X} pid={foreground.ProcessId}"
+                : "foreground_window=other selection_valid=false reason=not_foreground");
         }
         if (!isCodex)
             return;
@@ -81,9 +81,9 @@ internal sealed class ProbeMonitor(bool fixtures, bool exerciseTimeout, OverlayH
                 Receive();
             else if (clock.Elapsed - requestedAt >= RequestTimeout)
             {
-                Write($"watchdog operation={operation} worker={worker!.Id} elapsed_ms={(clock.Elapsed - requestedAt).TotalMilliseconds:F0}; selection invalidated");
+                Write($"watchdog operation={operation} worker={worker!.Id} uia_latency_ms={(clock.Elapsed - requestedAt).TotalMilliseconds:F0} selection_valid=false");
                 eventsUnavailable |= operation == Operation.Subscribe;
-                ResetWorker("uia-timeout");
+                ResetWorker("uia_timeout");
                 nextSample = clock.Elapsed + PollInterval;
             }
             return;
@@ -135,7 +135,7 @@ internal sealed class ProbeMonitor(bool fixtures, bool exerciseTimeout, OverlayH
 
         selectionGeneration++;
         if (dragging || bounds != windowBounds)
-            overlay.Publish(null, dragging ? "pointer-selection" : "window-moved");
+            overlay.Publish(null, dragging ? "pointer_selection" : "window_moved");
         windowBounds = bounds;
         selectingWithMouse = dragging;
         nextSample = clock.Elapsed;
@@ -164,44 +164,50 @@ internal sealed class ProbeMonitor(bool fixtures, bool exerciseTimeout, OverlayH
             }
 
             SelectionSample sample = reply.Sample ?? throw new InvalidDataException("Missing selection sample.");
-            Record(sample);
+            Record(sample, clock.Elapsed - requestedAt);
         }
         catch (Exception error) when (error is IOException or JsonException or InvalidOperationException)
         {
             Write($"worker fault={error.GetType().Name}; selection invalidated");
-            ResetWorker("worker-fault");
+            ResetWorker("uia_worker_fault");
             nextSample = clock.Elapsed + RequestTimeout;
         }
     }
 
-    private void Record(SelectionSample sample)
+    private void Record(SelectionSample sample, TimeSpan latency)
     {
         ScreenRectangle[] rectangles = sample.Ranges.SelectMany(range => range.Rectangles).ToArray();
         WindowGeometry geometry = NativeWindows.Geometry(foreground, rectangles);
         if (NativeWindows.Foreground() != foreground)
             return;
 
-        bool selectionChanged = lastSample is null || sample.State != lastSample.State
+        bool selectionChanged = lastSample is null || sample.State != lastSample.State || sample.Mode != lastSample.Mode
             || !sample.Ranges.Select(range => (range.Text, range.Region)).SequenceEqual(
                 lastSample.Ranges.Select(range => (range.Text, range.Region)));
-        bool geometryChanged = geometry != lastGeometry
+        bool geometryChanged = geometry != lastGeometry || sample.Viewport != lastSample?.Viewport
             || !rectangles.SequenceEqual(lastSample?.Ranges.SelectMany(range => range.Rectangles) ?? []);
         long eventDelta = sample.SelectionEvents - (lastSample?.SelectionEvents ?? 0);
+        bool assistant = sample.State == SelectionSample.Selected && sample.Ranges.Length > 0
+            && sample.Ranges.All(range => range.Region == SelectionRegion.Assistant
+                && !string.IsNullOrWhiteSpace(range.Text));
+        bool valid = assistant && rectangles.Any(OverlayPlacement.IsCandidate) && sample.Viewport.IsValid
+            && (overlay is null || geometry.Bounds == windowBounds);
+        string role = sample.Ranges.Length > 0 ? sample.Ranges[0].Region.ToString().ToLowerInvariant() : "none";
+        string reason = valid ? "eligible" : assistant ? "invalid_rectangle"
+            : sample.State == SelectionSample.Selected ? $"role_{role}" : sample.State;
         if (overlay is not null)
         {
-            bool assistant = sample.State == SelectionSample.Selected && sample.Ranges.Length > 0
-                && sample.Ranges.All(range => range.Region == SelectionRegion.Assistant
-                    && !string.IsNullOrWhiteSpace(range.Text));
-            bool valid = assistant && rectangles.Any(OverlayPlacement.IsCandidate) && geometry.Bounds == windowBounds;
-            overlay.Publish(valid ? new OverlaySelection(foreground, geometry.Bounds, rectangles) : null,
-                assistant ? "no-visible-rectangle" : sample.State == SelectionSample.Selected ? "non-assistant" : sample.State);
+            overlay.Publish(valid ? new OverlaySelection(foreground, geometry.Bounds, sample.Viewport, rectangles) : null,
+                reason);
             if (valid && exerciseTimeout && !stallExercised)
                 stallPending = true;
         }
 
         if (selectionChanged || geometryChanged || eventDelta != 0)
         {
-            Write($"state={sample.State} changed={selectionChanged} events={sample.SelectionEvents} event_delta={eventDelta} " +
+            Write($"mode_detection={sample.Mode} selection_detected={sample.Ranges.Length > 0} selection_role={role} " +
+                $"selection_rect_count={rectangles.Length} selection_valid={valid} reason={reason} uia_latency_ms={latency.TotalMilliseconds:F0} " +
+                $"changed={selectionChanged} events={sample.SelectionEvents} event_delta={eventDelta} " +
                 $"dpi={geometry.Dpi} monitor=0x{geometry.Monitor:X} monitor_count={geometry.MonitorCount} " +
                 $"cursor_rect={geometry.CursorRectangle} window={Coordinates(geometry.Bounds)}");
             foreach (SelectedRange range in sample.Ranges)

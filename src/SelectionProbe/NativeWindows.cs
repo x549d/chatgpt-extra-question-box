@@ -63,12 +63,24 @@ internal static class NativeWindows
         return new WindowIdentity(handle, pid);
     }
 
-    public static bool IsCodex(WindowIdentity window)
-    {
-        if (window.IsEmpty)
-            return false;
+    public static bool IsCodex(WindowIdentity window) => !window.IsEmpty && IsCodexProcess(window.ProcessId);
 
-        nint process = OpenProcess(ProcessQueryLimitedInformation, false, window.ProcessId);
+    public static bool CodexRunning()
+    {
+        foreach (var process in System.Diagnostics.Process.GetProcessesByName("ChatGPT"))
+        {
+            using (process)
+            {
+                if (IsCodexProcess((uint)process.Id))
+                    return true;
+            }
+        }
+        return false;
+    }
+
+    public static bool IsCodexProcess(uint processId)
+    {
+        nint process = OpenProcess(ProcessQueryLimitedInformation, false, processId);
         if (process == 0)
             return false;
 
@@ -166,6 +178,36 @@ internal static class NativeWindows
         return MonitorFromRect(ref bounds, 0) != 0;
     }
 
+    /// <summary>Mandatory integrity RID of the current process token (8192 = medium, 4096 = low).</summary>
+    public static int IntegrityLevel()
+    {
+        if (!OpenProcessToken(GetCurrentProcess(), 0x0008, out nint token))
+            return -1;
+        try
+        {
+            GetTokenInformation(token, 25, 0, 0, out int length);
+            if (length <= 0)
+                return -1;
+            nint buffer = Marshal.AllocHGlobal(length);
+            try
+            {
+                if (!GetTokenInformation(token, 25, buffer, length, out _))
+                    return -1;
+                nint sid = Marshal.ReadIntPtr(buffer);
+                int count = Marshal.ReadByte(GetSidSubAuthorityCount(sid));
+                return count == 0 ? -1 : Marshal.ReadInt32(GetSidSubAuthority(sid, (uint)(count - 1)));
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(buffer);
+            }
+        }
+        finally
+        {
+            CloseHandle(token);
+        }
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     private struct Rect
     {
@@ -217,6 +259,16 @@ internal static class NativeWindows
     private static extern nint OpenProcess(uint access, bool inherit, uint processId);
     [DllImport("kernel32.dll")]
     private static extern bool CloseHandle(nint handle);
+    [DllImport("kernel32.dll")]
+    private static extern nint GetCurrentProcess();
+    [DllImport("advapi32.dll", SetLastError = true)]
+    private static extern bool OpenProcessToken(nint process, uint access, out nint token);
+    [DllImport("advapi32.dll", SetLastError = true)]
+    private static extern bool GetTokenInformation(nint token, int informationClass, nint buffer, int length, out int returned);
+    [DllImport("advapi32.dll")]
+    private static extern nint GetSidSubAuthorityCount(nint sid);
+    [DllImport("advapi32.dll")]
+    private static extern nint GetSidSubAuthority(nint sid, uint index);
     [DllImport("kernel32.dll", ExactSpelling = true, CharSet = CharSet.Unicode)]
     private static extern int GetPackageFamilyName(nint process, ref uint length, StringBuilder name);
     [DllImport("kernel32.dll", ExactSpelling = true, CharSet = CharSet.Unicode)]

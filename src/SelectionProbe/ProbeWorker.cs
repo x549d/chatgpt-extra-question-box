@@ -5,9 +5,9 @@ using System.Text.Json;
 
 namespace ContextNotes.SelectionProbe;
 
-internal sealed record WorkerReply(SelectionSample? Sample = null, bool Subscribed = false);
+internal sealed record WorkerReply(SelectionSample? Sample = null, bool Subscribed = false, string[]? Report = null);
 
-internal enum Operation { Sample, Subscribe, Stall, Ping }
+internal enum Operation { Sample, Subscribe, Stall, Ping, Inspect }
 
 internal sealed class ProbeWorker : IDisposable
 {
@@ -85,6 +85,9 @@ internal sealed class ProbeWorker : IDisposable
                     break;
                 case Operation.Subscribe when selection is not null:
                     reply = new WorkerReply(Subscribed: selection.Subscribe());
+                    break;
+                case Operation.Inspect when selection is not null:
+                    reply = new WorkerReply(Report: selection.Inspect());
                     break;
                 case Operation.Ping when test:
                     reply = new WorkerReply();

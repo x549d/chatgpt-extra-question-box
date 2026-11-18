@@ -1,0 +1,18 @@
+{
+  "name": "context-notes",
+  "version": "0.2.0",
+  "description": "Select text in a Codex Chat answer and ask about it right beside the selection.",
+  "author": { "name": "x549d" },
+  "license": "Proprietary",
+  "keywords": ["selection", "chat", "context", "annotation", "windows"],
+  "hooks": "./hooks/hooks.json",
+  "interface": {
+    "displayName": "划词追问 Context Notes",
+    "shortDescription": "Ask about selected Chat text in place",
+    "longDescription": "Select part of an assistant answer in Codex Chat on Windows. A small entry appears beside the selection; clicking it opens a compact question box next to the quoted text. A background helper starts with your Codex sessions through a lifecycle hook. It reads only the current selection through Windows UI Automation and never injects into or modifies Codex.",
+    "developerName": "x549d",
+    "category": "Productivity",
+    "capabilities": ["Read"],
+    "brandColor": "#10A37F"
+  }
+}

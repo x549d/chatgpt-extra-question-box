@@ -62,12 +62,10 @@ internal static class OverlayPlacement
         if (xMax < xMin || yMax < yMin)
             return null;
         double x = Math.Clamp(Math.Floor(anchor.X), xMin, xMax);
+        // Beside the selection the entry is top-aligned with the first selected line (upper right first).
         double y = Math.Clamp(Math.Floor(anchor.Y), yMin, yMax);
         double below = Math.Ceiling(anchor.Bottom + gapY);
         double above = Math.Floor(anchor.Y - gapY) - height;
-        // Keep a button beside a single line out of the way of adjacent selectable text.
-        if (anchor.Height <= height)
-            y = below <= yMax ? below : above >= yMin ? above : y;
 
         double right = Math.Ceiling(anchor.Right + gapX);
         if (right <= xMax)

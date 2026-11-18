@@ -5,7 +5,8 @@ using System.Windows.Threading;
 
 namespace ContextNotes.SelectionProbe;
 
-internal sealed record OverlaySelection(WindowIdentity Window, ScreenRectangle WindowBounds, ScreenRectangle[] Rectangles);
+internal sealed record OverlaySelection(WindowIdentity Window, ScreenRectangle WindowBounds,
+    ScreenRectangle Viewport, ScreenRectangle[] Rectangles);
 
 internal sealed class OverlayHost : IDisposable
 {
@@ -14,7 +15,7 @@ internal sealed class OverlayHost : IDisposable
     private readonly Stopwatch clock = Stopwatch.StartNew();
     private readonly object updates = new();
     private OverlaySelection? latest;
-    private string hideReason = "inactive";
+    private string hideReason = "not_foreground";
     private long generation;
     private bool queued;
     private bool disposed;
@@ -22,12 +23,28 @@ internal sealed class OverlayHost : IDisposable
     private QuestionOverlay? window;
     private WindowIdentity owner;
     private ButtonPlacement? lastPlacement;
+    private string? lastHiddenReason;
 
     public OverlayHost()
     {
         var ready = new TaskCompletionSource<Dispatcher>(TaskCreationOptions.RunContinuationsAsynchronously);
         thread = new Thread(() =>
         {
+            Dispatcher.CurrentDispatcher.UnhandledException += (_, args) =>
+            {
+                // A rendering fault must hide the entry, never take down the companion.
+                args.Handled = true;
+                Write($"overlay fault error_type={args.Exception.GetType().Name}");
+                try
+                {
+                    window?.Hide();
+                }
+                catch (InvalidOperationException)
+                {
+                    window = null;
+                }
+                lastPlacement = null;
+            };
             ready.SetResult(Dispatcher.CurrentDispatcher);
             Dispatcher.Run();
         }) { IsBackground = true, Name = "Context Notes Overlay" };
@@ -38,7 +55,7 @@ internal sealed class OverlayHost : IDisposable
 
     public bool PointerOverButton => NativeWindows.PointerOverWindow(Volatile.Read(ref handle));
 
-    public void Publish(OverlaySelection? selection, string reason = "invalid-selection")
+    public void Publish(OverlaySelection? selection, string reason = "selection_empty")
     {
         lock (updates)
         {
@@ -75,15 +92,16 @@ internal sealed class OverlayHost : IDisposable
         }
         if (!IsCurrent(selection, expected))
         {
-            Hide("stale-selection");
+            Hide("stale_selection");
             return;
         }
 
-        DisplayArea? display = OverlayPlacement.ChooseDisplay(selection.Rectangles, selection.WindowBounds,
+        ScreenRectangle viewport = selection.Viewport.Intersect(selection.WindowBounds);
+        DisplayArea? display = OverlayPlacement.ChooseDisplay(selection.Rectangles, viewport,
             NativeWindows.Displays());
         if (display is not { } screen)
         {
-            Hide("no-visible-rectangle");
+            Hide("selection_outside_viewport");
             return;
         }
 
@@ -96,34 +114,37 @@ internal sealed class OverlayHost : IDisposable
             }
             if (NativeWindows.WindowDisplay(window.Handle) != screen.Handle)
             {
-                Hide("display-change");
+                Hide("display_change");
                 if (!window.StageOn(screen))
+                {
+                    Hide("overlay_position_invalid");
                     return;
+                }
             }
 
             var dpi = VisualTreeHelper.GetDpi(window);
-            ScreenRectangle visible = selection.WindowBounds.Intersect(screen.WorkArea);
-            ScreenRectangle? anchor = OverlayPlacement.GetAnchorRectangle(selection.Rectangles, visible,
+            ScreenRectangle work = viewport.Intersect(screen.WorkArea);
+            ScreenRectangle? anchor = OverlayPlacement.GetAnchorRectangle(selection.Rectangles, work,
                 dpi.DpiScaleX, dpi.DpiScaleY);
             ButtonPlacement? placement = anchor is { } box
-                ? OverlayPlacement.Place(box, screen.WorkArea, (int)Math.Ceiling(window.Width * dpi.DpiScaleX),
+                ? OverlayPlacement.Place(box, work, (int)Math.Ceiling(window.Width * dpi.DpiScaleX),
                     (int)Math.Ceiling(window.Height * dpi.DpiScaleY), 7 * dpi.DpiScaleX, 7 * dpi.DpiScaleY)
                 : null;
             if (placement is not { } target)
             {
-                Hide("no-fit");
+                Hide(anchor is null ? "invalid_rectangle" : "overlay_position_invalid");
                 return;
             }
             if (!IsCurrent(selection, expected))
             {
-                Hide("stale-selection");
+                Hide("stale_selection");
                 return;
             }
 
             bool showing = !window.IsVisible;
             if ((showing || target != lastPlacement) && !window.Place(target.Bounds))
             {
-                Hide("position-failed");
+                Hide("overlay_position_invalid");
                 return;
             }
             owner = selection.Window;
@@ -132,7 +153,7 @@ internal sealed class OverlayHost : IDisposable
                 window.Show();
                 if (NativeWindows.WindowBounds(window.Handle) != target.Bounds && !window.Place(target.Bounds))
                 {
-                    Hide("position-failed");
+                    Hide("overlay_position_invalid");
                     return;
                 }
             }
@@ -140,13 +161,14 @@ internal sealed class OverlayHost : IDisposable
             {
                 var bounds = NativeWindows.WindowBounds(window.Handle);
                 Write(FormattableString.Invariant(
-                    $"overlay={(showing ? "shown" : "moved")} side={target.Side} px=[{bounds.X},{bounds.Y},{bounds.Width},{bounds.Height}] dpi={dpi.PixelsPerInchX:F0}"));
+                    $"overlay_visible=true change={(showing ? "shown" : "moved")} side={target.Side} px=[{bounds.X},{bounds.Y},{bounds.Width},{bounds.Height}] viewport=[{viewport.X},{viewport.Y},{viewport.Width},{viewport.Height}] dpi={dpi.PixelsPerInchX:F0}"));
             }
             lastPlacement = target;
+            lastHiddenReason = null;
         }
         catch (Exception error) when (error is Win32Exception or InvalidOperationException)
         {
-            Hide("window-error");
+            Hide("overlay_position_invalid");
             Write($"overlay error={error.GetType().Name}");
         }
     }
@@ -166,16 +188,16 @@ internal sealed class OverlayHost : IDisposable
     private void OnClick()
     {
         if (NativeWindows.Foreground() == owner && window is { IsActive: false })
-            Write("overlay=clicked codex_foreground=true");
+            Write("annotation_entry_clicked codex_foreground=true");
     }
 
     private void Hide(string reason)
     {
         if (window is { IsVisible: true })
-        {
             window.Hide();
-            Write($"overlay=hidden reason={reason}");
-        }
+        if (lastHiddenReason != reason)
+            Write($"overlay_visible=false overlay_hidden_reason={reason}");
+        lastHiddenReason = reason;
         lastPlacement = null;
     }
 

@@ -24,11 +24,22 @@ internal static class Program
             }
             if (args is ["--self-test"])
                 return SelfTestAsync().GetAwaiter().GetResult();
+            if (args.Length == 0 || args is ["--companion"])
+                return Companion.Run();
+            if (args is ["--launch"])
+                return Companion.Launch();
+            if (args is ["--status"] or ["--stop"])
+                return Companion.Status(stopRequested: args[0] == "--stop");
+            if (args is ["--inspect"])
+                return InspectRunner.Run(TimeSpan.FromSeconds(180));
+            if (args is ["--inspect", "--seconds", var inspectSeconds]
+                && int.TryParse(inspectSeconds, out int inspectDuration) && inspectDuration is >= 10 and <= 900)
+                return InspectRunner.Run(TimeSpan.FromSeconds(inspectDuration));
 
             int? seconds = null;
             bool fixtures = false;
             bool exerciseTimeout = false;
-            bool overlayMode = args.Length == 0;
+            bool overlayMode = false;
             for (int i = 0; i < args.Length; i++)
             {
                 switch (args[i])
@@ -84,7 +95,9 @@ internal static class Program
 
     private static int Usage()
     {
-        Console.Error.WriteLine("SelectionProbe [--overlay [--exercise-timeout]] [--seconds 1..600] | --fixtures [--seconds 1..600] [--exercise-timeout] | --self-test");
+        Console.Error.WriteLine("SelectionProbe [--companion | --launch | --status | --stop | --self-test]");
+        Console.Error.WriteLine("SelectionProbe --inspect [--seconds 10..900]");
+        Console.Error.WriteLine("SelectionProbe [--overlay [--exercise-timeout] | --fixtures] [--seconds 1..600]");
         return 2;
     }
 
@@ -107,6 +120,7 @@ internal static class Program
         Require(!new ScreenRectangle(0, 0, double.NaN, 20).IsValid, "invalid rectangle");
         TestOverlayPlacement();
         await TestOverlayWindowAsync();
+        TestChatRules();
 
         const string programFiles = @"C:\Program Files";
         const string protectedImage = @"C:\Program Files\WindowsApps\OpenAI.Codex_26.1111.2228.0_x64__2p2nqsd0c76g0\app\ChatGPT.exe";
@@ -169,7 +183,7 @@ internal static class Program
             == new ScreenRectangle(0, 40, 30, 24), "visible portion of clipped range anchors the button");
 
         Require(OverlayPlacement.Place(first, work, 162, 42, 11, 11)
-            is { Side: "right", Bounds.X: 151, Bounds.Y: 115 }, "right side avoids adjacent text on the same line");
+            is { Side: "right", Bounds.X: 151, Bounds.Y: 80 }, "right side first, top-aligned with the selection");
         Require(OverlayPlacement.Place(new ScreenRectangle(402, 80, 80, 24), work, 162, 42, 11, 11)
             is { Side: "left", Bounds.X: 229 }, "left side fallback");
         Require(OverlayPlacement.Place(new ScreenRectangle(20, 80, 470, 24), work, 162, 42, 11, 11)
@@ -187,6 +201,38 @@ internal static class Program
         var leftAnchor = OverlayPlacement.GetAnchorRectangle(multiScreen, spanning.Intersect(left.WorkArea), 2, 2);
         Require(leftAnchor is { } box && OverlayPlacement.Place(box, left.WorkArea, 216, 56, 14, 14)
             is { Side: "left", Bounds.Right: <= 0 }, "mixed-scale geometry stays inside the chosen work area");
+
+        var chatViewport = new ScreenRectangle(100, 30, 300, 230);
+        var nearComposer = new ScreenRectangle(210, 221, 178, 25);
+        Require(OverlayPlacement.Place(nearComposer, chatViewport, 162, 42, 11, 11)
+            is { Side: "above", Bounds.Bottom: <= 210, Bounds.Right: <= 400 },
+            "conversation viewport beats spare desktop space near the composer");
+        foreach (var anchorCase in new[] { first, new ScreenRectangle(402, 80, 80, 24), new ScreenRectangle(20, 80, 470, 24) })
+        {
+            Require(OverlayPlacement.Place(anchorCase, work, 162, 42, 11, 11) is { } placed
+                && !placed.Bounds.Intersects(anchorCase) && placed.Bounds.X >= work.X && placed.Bounds.Right <= work.Right
+                && placed.Bounds.Y >= work.Y && placed.Bounds.Bottom <= work.Bottom,
+                FormattableString.Invariant($"entry never covers the selection and stays inside the viewport ({anchorCase.X})"));
+        }
+    }
+
+    private static void TestChatRules()
+    {
+        Require(UiaSelection.ModeFromName("切换模式，当前模式：ChatGPT") == "chat"
+            && UiaSelection.ModeFromName("Switch mode, current mode: ChatGPT") == "chat", "ChatGPT mode switch confirms Chat");
+        Require(UiaSelection.ModeFromName("切换模式，当前模式：Codex") == "codex", "Codex mode is recognised and excluded");
+        Require(UiaSelection.ModeFromName(null) == "unknown" && UiaSelection.ModeFromName("切换模式") == "unknown",
+            "missing or unexpected mode switch is not treated as Chat");
+        Require(UiaSelection.RoleFromHeading("ChatGPT 说：") == SelectionRegion.Assistant
+            && UiaSelection.RoleFromHeading("ChatGPT said:") == SelectionRegion.Assistant, "assistant role heading");
+        Require(UiaSelection.RoleFromHeading("你说：") == SelectionRegion.User
+            && UiaSelection.RoleFromHeading("You said:") == SelectionRegion.User, "user role heading");
+        Require(UiaSelection.RoleFromHeading("最新一条回复") == SelectionRegion.Unknown, "latest-reply marker is neutral");
+        Require(UiaSelection.IsRoleMarker("标题", "sr-only", new ScreenRectangle(10, 10, 300, 20))
+            && UiaSelection.IsRoleMarker("heading", "", new ScreenRectangle(10, 10, 1, 1)), "hidden heading is a role marker");
+        Require(!UiaSelection.IsRoleMarker("标题", "text-lg font-bold", new ScreenRectangle(10, 10, 300, 28))
+            && !UiaSelection.IsRoleMarker("文本", "sr-only", new ScreenRectangle(10, 10, 1, 1)),
+            "visible Markdown heading named like a role is ignored");
     }
 
     private static Task TestOverlayWindowAsync()
