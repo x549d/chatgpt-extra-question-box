@@ -76,20 +76,20 @@ internal sealed class HistoryDatabase : IDisposable
     {
         lock (gate)
         {
-            var rows = Query("SELECT payload,title,archived,deleted FROM annotations a WHERE account_scope=? AND deleted=? AND (?='-1' OR archived=?) AND (?='' OR created_at>=?) AND (?='' OR created_at<?) AND (?='' OR instr(lower(selected_text),lower(?))>0 OR instr(lower(title),lower(?))>0 OR EXISTS(SELECT 1 FROM messages m WHERE m.annotation_id=a.id AND instr(lower(m.content),lower(?))>0)) ORDER BY updated_at DESC LIMIT ? OFFSET ?",
+            var rows = Query("SELECT payload,title,archived,deleted,updated_at FROM annotations a WHERE account_scope=? AND deleted=? AND (?='-1' OR archived=?) AND (?='' OR created_at>=?) AND (?='' OR created_at<?) AND (?='' OR instr(lower(selected_text),lower(?))>0 OR instr(lower(title),lower(?))>0 OR EXISTS(SELECT 1 FROM messages m WHERE m.annotation_id=a.id AND instr(lower(m.content),lower(?))>0)) ORDER BY updated_at DESC LIMIT ? OFFSET ?",
                 accountScope, deleted ? "1" : "0", archive.ToString(), archive.ToString(), since?.ToUniversalTime().ToString("O") ?? "", since?.ToUniversalTime().ToString("O"), until?.ToUniversalTime().ToString("O") ?? "", until?.ToUniversalTime().ToString("O"), search, search, search, search, Math.Clamp(limit, 1, 500).ToString(), Math.Max(offset, 0).ToString());
             return rows.Select(row =>
             {
                 var r = JsonSerializer.Deserialize<HistoryRecord>(row[0]!)!;
                 var messages = Query("SELECT id,role,content,created_at,turn_id,completion_status,committed FROM messages WHERE annotation_id=? ORDER BY sequence", r.Id)
                     .Select(m => new AnnotationMessage { MessageId = m[0]!, Role = m[1]!, Text = m[2]!, Timestamp = DateTimeOffset.Parse(m[3]!), TurnId = m[4], State = (AnnotationGenerationState)int.Parse(m[5]!), IsCommittedHistory = m[6] == "1" }).ToArray();
-                return r with { Title = row[1]!, Archived = row[2] == "1", Deleted = row[3] == "1", Messages = messages };
+                return r with { Title = row[1]!, Archived = row[2] == "1", Deleted = row[3] == "1", UpdatedAt = DateTimeOffset.Parse(row[4]!), Messages = messages };
             }).ToArray();
         }
     }
 
     public void SetFlags(string id, string accountScope, bool archived, bool deleted) => Execute("UPDATE annotations SET archived=?,deleted=?,updated_at=? WHERE id=? AND account_scope=?", archived ? "1" : "0", deleted ? "1" : "0", DateTimeOffset.UtcNow.ToString("O"), id, accountScope);
-    public void Rename(string id, string accountScope, string title) => Execute("UPDATE annotations SET title=? WHERE id=? AND account_scope=?", title.Trim(), id, accountScope);
+    public void Rename(string id, string accountScope, string title) => Execute("UPDATE annotations SET title=?,updated_at=? WHERE id=? AND account_scope=?", title.Trim(), DateTimeOffset.UtcNow.ToString("O"), id, accountScope);
     public string[] AccountScopes() { lock (gate) return Query("SELECT DISTINCT account_scope FROM annotations ORDER BY account_scope").Select(r => r[0]!).ToArray(); }
     public void PurgeDeleted(string accountScope, bool confirmed)
     {

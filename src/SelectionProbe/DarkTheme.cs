@@ -13,7 +13,10 @@ internal static class DarkTheme
         {
             var style = new Style(type);
             style.Setters.Add(new Setter(Control.BackgroundProperty, new SolidColorBrush(Color.FromRgb(35, 36, 40))));
-            style.Setters.Add(new Setter(Control.ForegroundProperty, Brushes.Gainsboro));
+            // Native picker templates keep their light selection/editor surface on Windows.
+            // Their selected text must remain dark; dropdown items retain the dark theme below.
+            style.Setters.Add(new Setter(Control.ForegroundProperty,
+                type == typeof(ComboBox) || type == typeof(DatePicker) ? Brushes.Black : Brushes.Gainsboro));
             style.Setters.Add(new Setter(Control.BorderBrushProperty, new SolidColorBrush(Color.FromRgb(69, 72, 82))));
             window.Resources[type] = style;
         }

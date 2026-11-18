@@ -151,5 +151,19 @@ public sealed class Phase5HistoryTests : IDisposable
         p.Suspend(item.AnnotationId); p.Database.SetFlags("a", "account-a", false, true); p.Database.PurgeDeleted("account-a", true);
         p.Save(item); p.Flush(); Assert.Empty(p.Database.Search("account-a"));
     }
+    [Fact] public void HistoryMutationsReturnCurrentMetadataInsteadOfStalePayloadTimestamp()
+    {
+        using var db = new HistoryDatabase(DbPath);
+        var oldTime = DateTimeOffset.Parse("2000-01-01T00:00:00+00:00");
+        db.Save(HistoryRecord.Capture(Item()) with { CreatedAt = oldTime, UpdatedAt = oldTime });
+        db.Rename("a", "account-a", "renamed");
+        var renamed = Assert.Single(db.Search("account-a"));
+        Assert.Equal("renamed", renamed.Title); Assert.True(renamed.UpdatedAt > oldTime);
+        db.SetFlags("a", "account-a", true, false);
+        var archived = Assert.Single(db.Search("account-a", archive: 1));
+        Assert.True(archived.UpdatedAt >= renamed.UpdatedAt);
+        var equivalentStart = DateTimeOffset.Parse("2000-01-01T08:00:00+08:00");
+        Assert.Single(db.Search("account-a", since: equivalentStart, until: equivalentStart.AddHours(1)));
+    }
     public void Dispose() { if (Directory.Exists(root)) Directory.Delete(root, true); }
 }
