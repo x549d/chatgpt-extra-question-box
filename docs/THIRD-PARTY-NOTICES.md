@@ -17,3 +17,5 @@ The application project has no production NuGet PackageReference, no third-party
 ## Independence and Trademark Notice
 
 This project is an independent third-party Windows desktop utility. It is **not affiliated with, sponsored by, endorsed by, or officially certified by OpenAI**. "OpenAI", "ChatGPT", and "Codex" are trademarks of OpenAI. Before any public distribution, the maintainer must confirm the project's public naming, branding boundaries, distribution license (`LICENSE`), and publisher contact information (`PRIVACY.md`).
+
+Phase 7 review (2026-11-19): [OpenAI's current brand guidelines](https://openai.com/brand/) restrict product/model-brand naming and misleading endorsement. The historical repository title "ChatGPT Context Notes Native" needs an explicit public-branding decision; the independence disclaimer alone does not establish permission. No logo or font has been downloaded and no public rename, legal authorization or trademark permission is assumed. The maintainer can assess a neutral name such as "Context Notes Native" with a factual compatibility description, or supply applicable permission for review.
