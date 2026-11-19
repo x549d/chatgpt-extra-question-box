@@ -87,6 +87,7 @@ internal sealed class FakeCodexAppServer : IDisposable
     public ConcurrentQueue<(string ThreadId, string TurnId)> InterruptedTurns { get; } = new();
 
     public Func<string, string, string, FakeCodexAppServer, Task>? CustomTurnHandler { get; set; }
+    public Func<string, string, FakeCodexAppServer, Task>? BeforeTurnStartReply { get; set; }
 
     public async Task WriteServerLineAsync(string line)
     {
@@ -170,6 +171,9 @@ internal sealed class FakeCodexAppServer : IDisposable
                         string inputText = p.GetProperty("input")[0].GetProperty("text").GetString()!;
                         string turnId = $"turn-{Interlocked.Increment(ref nextTurnNum)}";
                         ReceivedTurns.Enqueue((tid, turnId, inputText));
+
+                        if (BeforeTurnStartReply is { } beforeReply)
+                            await beforeReply(tid, turnId, this);
 
                         await WriteServerLineAsync(
                             $$$$"""{"id":{{{{id}}}},"result":{"turn":{"id":"{{{{turnId}}}}","items":[],"status":"inProgress"}}}""");

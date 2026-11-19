@@ -8,7 +8,8 @@
 - Isolated TESTROOT uninstall identities from the production AppId; retained per-user privileges and fail-before-deployment registry preflight.
 - Added runtime observation, four actual permission probes, legacy-host installation fixtures and third-party license inventory.
 - Unified desktop and packaged history under the user's .context-notes-native directory; blocked silent empty replacements and added explicit backup import into new destinations.
-- Preserved all existing tests: 102 xUnit, 80 self-tests and 19 installation assertions; release audits now also check staging files, runtime signature state and source revision existence.
+- Fixed resumed AI questions binding to a previous turn's token-usage notification, which could discard valid deltas/completion and falsely time out. Informational notifications no longer bind active turns; early genuine completion remains supported.
+- Preserved all existing tests: 106 xUnit, 80 self-tests and 19 installation assertions; release audits now also check staging files, runtime signature state and source revision existence.
 
 Standard EXE installation, clean-Windows acceptance, complete UI stress coverage,
 trusted signing and publisher-approved distribution terms remain release gates.

@@ -397,6 +397,10 @@ internal sealed class AnnotationService : IDisposable
 
     private void OnClientNotification(string method, JsonElement parameters)
     {
+        // Resume can replay token usage for the previous turn. Informational
+        // notifications must not claim the active question's turn binding.
+        if (method is not ("turn/started" or "item/agentMessage/delta" or "item/completed" or "error" or "turn/completed"))
+            return;
         if (parameters.ValueKind != JsonValueKind.Object)
             return;
 
