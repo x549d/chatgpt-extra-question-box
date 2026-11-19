@@ -22,7 +22,7 @@
 | DLL / EXE | 不包含个人构建路径 | 重建的 `SelectionProbe.dll` PE 调试目录仅含 `IMAGE_DEBUG_TYPE_REPRO` (`Type=16, SizeOfData=0`)，无 CodeView RSDS / `.pdb` 路径；UTF-8/UTF-16LE 隐私扫描 **0 命中** | **PASS** |
 | ZIP | 不包含个人数据 | 重建的 `ContextNotesNative-0.3.0-portable.zip`（27 个条目）含 0 个 `.pdb`、0 个 SQLite 数据库、0 处本机路径或个人邮箱 | **PASS** |
 | Gitleaks | 0 未解决泄露 | `gitleaks 8.30.1` 扫描重写后全历史（62 提交 / 1.04 MB）与重建发布包均返回 **0 leaks found**（退出码 `0`） | **PASS** |
-| 正式 Release | 正常可下载 | 已基于重写后 CLEAN 提交 `a26c33d` 重新构建并通过 13/13 发布审计、29/29 安装器测试、19/19 便携测试；待仓库恢复 Public 并更新 Release 资产后进行公网 API 下载复核 | **READY FOR PUBLIC VERIFY** |
+| 正式 Release | 正常可下载 | 已基于重写后 CLEAN 提交 `a26c33d` 重新构建并通过 13/13 发布审计、29/29 安装器测试、19/19 便携测试；经未登录公网 GitHub API 核验 `v0.3.0` 全部 3 个资产均为 `uploaded` 且 SHA-256 100% 匹配 | **PASS** |
 
 ---
 

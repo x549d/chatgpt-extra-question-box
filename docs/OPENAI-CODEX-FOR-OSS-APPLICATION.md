@@ -49,7 +49,7 @@
 | 全 Git 历史隐私清理与 Gitleaks 0 泄露 | **已完成** | 个人邮箱已全面替换为 `348141032+x549d@users.noreply.github.com`，历史路径/用户名/PDB 均 0 命中 |
 | MIT 许可证生效（根 `LICENSE` + `plugin.json`） | **已完成** | `Copyright (c) 2026 x549d`，0 生产第三方 NuGet 依赖 |
 | GitHub Actions Windows CI 与贡献模板 | **已完成** | 已配置 `.github/workflows/ci.yml`、手动打包工作流、4 类 Issue 模板与 PR 模板 |
-| 公开仓库、准确 About 简介与公开 `v0.3.0` Release | **待维护者恢复 Public 后公网复核** | Phase 9A 重写期间临时设为 Private，推送完毕恢复 Public 并更新简介与重建包后即时生效 |
+| 公开仓库、准确 About 简介与公开 `v0.3.0` Release | **已完成** | 经未登录公网 GitHub API 核实 `visibility=public`、About 简介与 Topics 已更新、`v0.3.0` 全部 3 个隐私洁净重建资产可公开下载且 SHA-256 匹配 |
 | 维护者个人姓名、ChatGPT 邮箱与 `OpenAI Organization ID` | **待维护者本人填写** | 不猜测、不代填、不擅自提交 |
 
 ---
@@ -109,8 +109,8 @@ Integrates strictly via official codex.exe app-server stdio JSON-RPC and Session
 
 在维护者亲自打开 <https://openai.com/form/codex-for-oss/> 提交前，请逐项核对：
 
-- [ ] GitHub 仓库 `https://github.com/x549d/context-notes-native` 已恢复为 **Public**，About 简介已更新为公开项目说明。
-- [ ] GitHub Release `v0.3.0` 已更新为隐私洁净重建版产物（`setup.exe`、`portable.zip`、`SHA256SUMS`）且可公开下载。
-- [ ] GitHub Actions `Windows CI` 在公开 `main` 分支上运行通过。
+- [x] GitHub 仓库 `https://github.com/x549d/context-notes-native` 已恢复为 **Public**，About 简介与 Topics 已更新为公开项目说明。
+- [x] GitHub Release `v0.3.0` 已更新为隐私洁净重建版产物（`setup.exe`、`portable.zip`、`SHA256SUMS`）且经公网 API 核验可下载、SHA-256 一致。
+- [x] GitHub Actions `Windows CI` 在公开 `main` 分支上运行通过（Run #3 `416062a` 全部 11 个步骤 `success`）。
 - [ ] 表单勾选了 **API credits**，且确认 **未勾选 Codex Security**。
 - [ ] 已由维护者本人核实上述英文文本完全真实、无任何虚构数据，并亲手填入姓名、ChatGPT 邮箱与 `OpenAI Organization ID` 后点击提交。
