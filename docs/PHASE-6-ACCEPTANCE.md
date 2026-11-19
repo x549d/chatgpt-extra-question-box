@@ -23,6 +23,8 @@
 | `f7fbe71` | 6B 完整客户端冷启动与原 Thread 续问 |
 | `7d120f3` | 6C 隔离安装 AppId、CLI stderr 和旧 PowerShell 测试兼容 |
 | `7e1df68` | 6B 两个 AppData 视图的非覆盖合并与统一数据根目录 |
+| `6cc5bbe` | 6D 用户文档、第三方许可清单和 12 项发布审计 |
+| `aa6ba03` | 6B 上一轮用量通知抢占绑定修正，106 项回归 |
 
 6D 文档、许可清单及发布审计门禁另行提交。最终提交和 CLEAN 状态在末尾记录；包内 release.json 的 source_commit 指向实际 CLEAN 构建提交，最终报告可随后形成只改文档的提交。
 
@@ -117,3 +119,38 @@ README、CHANGELOG、安装、用户指南、排查、安全、隐私、签名�
 5. 可信签名、公众分发许可和隐私联系主体。
 
 打包成功不会使这些项目自动 PASS。
+
+## 固定最终载荷与真实部署（13:43～13:48）
+
+最终实现/构建提交：`aa6ba0343edc29144eba16da010f258677b6709c`，构建时 CLEAN；包内 source_dirty=false、formal_release_ready=false。载荷 `artifacts\payload-e9f1a056c9ba4e50a5f5c5d0d804f374`。本文后续只改验收记录的提交不重新编译程序，避免改变长时观察中的运行字节。
+
+| 发布物 | 字节 | SHA-256 |
+| --- | ---: | --- |
+| ContextNotesNative-0.3.0-setup.exe | 2,287,221 | `CE524B75D62A4C5D33E5533320E95DC84855A8F35674A5553C761B43B2321EA4` |
+| ContextNotesNative-0.3.0-portable.zip | 243,201 | `71B04EFF8BDCD370788F69AA34B7B89AA99F84EC5C8F8F27248CF64EE841585D` |
+
+均在 artifacts，SHA256SUMS 两行及各自 .sha256 已生成；这是未签名预览包，EXE 成功编译并不代表安装通过。
+
+最终源码回归：Release 构建 0 警告/0 错误；xUnit 发现/通过 **106**、失败 0、跳过 0；原项目自测 **80/80**。实际最终包内管理器 PowerShell 7 **19/19**，实际解压 ZIP 的 Windows PowerShell 5.1 **19/19**，各失败 0/跳过 0；没有合计冒充 38 个不同功能。发布检查 **12/12**，当前用户权限 **4/4**。完整 Git 历史与最终载荷的 gitleaks 脱敏扫描均 0 发现；不以扫描代替人工边界审查。
+
+部署前使用最终程序的 SQLite Backup API 创建新的 `%USERPROFILE%\.context-notes-native\backups\history-before-final6-20261119-134326.db`，schema 2、integrity ok，SHA-256 `E9E9B0033BD3F230D1297F37F04A43F6BC91048269353648F2833481CED6A7EF`。旧程序和本项目状态文件另保全于忽略的 deployment-recovery 目录。先停 Watcher 再停 Companion，确认缓存进程退出后同步固定载荷，不覆盖数据库。
+
+安装目录 `%LOCALAPPDATA%\Programs\ContextNotesNative\versions\0.3.0` 全部载荷哈希匹配；缓存、安装目录、工作区 bin 四个运行文件均与发布暂存一致。DLL SHA-256 `1F4D8E03AA864F21956FAD33BA4EA542F9AE197BDBBAB31D88F06E482DC3C759`。官方 CLI 只读确认 marketplace 仍指向此稳定用户目录，其他注册来源保留。启动快捷方式仍指向缓存原路径。没有以手动文件同步冒充标准安装器成功。
+
+真实交互桌面启动新 Companion **22064**、Watcher **23764**，Session 1；实际 Ctrl+Alt+H 恢复历史、项目 App Server **18476 / 22064** 按需启动，初始化 233ms。旧项目 App Server 2632 已退出，主客户端进程仍在。最终部署没有保留加载旧代码的 Watcher。
+
+修正后真实服务层并发：三个不同原 Thread 实际同时 active=3，约 **9.67 秒**全部 Completed，Thread 保持、持久化错误 0。它验证真实官方 AI 与服务层路由，不替代三个工具浮窗同时操作的 UI 证据。最终发布 DLL 的既有 --phase5-live-resume 随后也实际三条全部通过，模型目录 10、用量可读、账号隔离记录 0，原 Thread 均保留；非模拟结果。
+
+13:47 只读核验共 **13/102**，部署前备份的消息差异 0，新失败消息 0。原 6/26 与原引用/Thread/账号逐项差异也为 0。之前故障生成的失败记录保留。
+
+最终完整观察已于 **2026-11-19 13:44:45 +08** 重新启动，输出 `artifacts\runtime-6b-final-20261119-1345`，基线为上述部署前备份。此后不替换固定程序。
+
+## 用户要求暂停的断点（2026-11-19 14:08）
+
+用户明确要求“保存当前工作阶段，暂停工作”。已停止桌面操作、等待循环及本轮采样进程 35380，保留程序运行，没有继续 AI 请求、安装或测试。继续前必须收到新的恢复指示。
+
+本轮采样实际 **47 个样本 / 1,386.657 秒 / 23.111 分钟**，最后样本 14:07:51。partial-result.json 标记 stopped_by_user_pause、complete_60_minutes=false、health_pass=null，不能判为 30/60 分钟通过；暂停与两轮先前故障分别记录。
+
+在已记录区间，Companion 22064、Watcher 23764、其 App Server 18476 始终各一个，无重启；UIA worker 按需为 0～1 个。Companion 私有内存 84.83→97.43 MiB、峰值 103.76 MiB，整机归一 CPU 均值 0.1668%、峰值 0.6445%；Watcher 私有内存 7.75→9.20 MiB，App Server 26.86→22.40 MiB。这些只是 23 分钟观察，不能证明完整长时稳定性。
+
+最终源码、程序、EXE/ZIP/SHA256SUMS 已保留；只有本页及 [恢复断点](PHASE-6-CHECKPOINT.md) 更新，不重新编译或部署。当前进度为 **6B 最终长时验收暂停，6C 安装/干净环境受阻，6D 未签名预览材料及回归完成**。可信正式发布仍 BLOCKED，不推送或创建正式版本。
