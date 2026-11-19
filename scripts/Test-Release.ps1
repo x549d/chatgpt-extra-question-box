@@ -56,6 +56,7 @@ $licenseText = Get-Content -LiteralPath (Join-Path $PayloadRoot 'LICENSE') -Raw
 Require ($licenseText.TrimStart().StartsWith('MIT License') -and $pluginManifest.license -eq 'MIT') 'MIT license matches root LICENSE and plugin manifest'
 $release = Get-Content -LiteralPath (Join-Path $PayloadRoot 'release.json') -Raw | ConvertFrom-Json
 Require ($release.version -eq $version -and $release.license -eq 'MIT' -and $release.channel -eq 'public-unsigned' -and !$release.source_dirty -and $release.signature -eq 'NotSigned' -and $release.source_commit -match '^[0-9a-f]{40}$') 'clean public-unsigned provenance and MIT metadata recorded'
+Require ($release.clean_windows_tested -is [bool] -and $release.clean_windows_tested -eq $false -and $release.formal_release_ready -is [bool] -and $release.formal_release_ready -eq $false) 'unsigned preview preserves pending clean Windows and formal release gates'
 $revision = (& git -c "safe.directory=$($repo.Replace('\','/'))" -C $repo rev-parse --verify ($release.source_commit+'^{commit}') 2>$null | Out-String).Trim()
 Require ($LASTEXITCODE -eq 0 -and $revision -eq $release.source_commit) 'recorded source commit exists in repository'
 Write-Output "PASS release_checks=$checks license=MIT channel=public-unsigned signature=NotSigned"

@@ -13,6 +13,12 @@ param(
     [string]$LegacyHistoryBackup
 )
 $ErrorActionPreference = 'Stop'
+# Setup can inherit PowerShell 7's PSModulePath before starting Windows
+# PowerShell 5.1. Resolve the built-in modules from this host, so commands such
+# as Get-FileHash cannot resolve to an incompatible PowerShell 7 module.
+foreach ($module in @('Microsoft.PowerShell.Management','Microsoft.PowerShell.Utility')) {
+    Import-Module (Join-Path $PSHOME "Modules\$module\$module.psd1") -ErrorAction Stop
+}
 $PayloadRoot = [IO.Path]::GetFullPath($PayloadRoot)
 $ProfileRoot = [IO.Path]::GetFullPath($ProfileRoot)
 $DataRoot = [IO.Path]::GetFullPath($DataRoot)

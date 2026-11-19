@@ -13,6 +13,9 @@ if ($aclText -match 'Low Mandatory Level') {
 }
 
 $workRoot = Join-Path ([IO.Path]::GetTempPath()) ('ContextNotesNative-ExeTest-' + [Guid]::NewGuid().ToString('N'))
+$tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\') + '\'
+$workRoot = [IO.Path]::GetFullPath($workRoot)
+if (!$workRoot.StartsWith($tempRoot, [StringComparison]::OrdinalIgnoreCase)) { throw 'Test directory escaped the temporary root.' }
 New-Item -ItemType Directory -Path $workRoot -Force | Out-Null
 
 $count = 0
@@ -55,7 +58,7 @@ try {
     $expectedKey = Get-ExpectedTestKeyName $stateDir
     $createdKeys.Add($expectedKey)
 
-    $proc = Start-Process -FilePath $SetupExe -ArgumentList @(
+    $proc = Start-Process -WindowStyle Hidden -FilePath $SetupExe -ArgumentList @(
         '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/NOICONS',
         "/DIR=$appDir",
         "/TESTROOT=$stateDir",
@@ -81,7 +84,7 @@ try {
 
     # 2. Reinstall / in-place upgrade over existing installation
     $logUpgrade = Join-Path $workRoot 'setup-reinstall.log'
-    $proc2 = Start-Process -FilePath $SetupExe -ArgumentList @(
+    $proc2 = Start-Process -WindowStyle Hidden -FilePath $SetupExe -ArgumentList @(
         '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/NOICONS',
         "/DIR=$appDir",
         "/TESTROOT=$stateDir",
@@ -98,7 +101,7 @@ try {
     $failKey = Get-ExpectedTestKeyName $failStateDir
     $createdKeys.Add($failKey)
 
-    $procFail = Start-Process -FilePath $SetupExe -ArgumentList @(
+    $procFail = Start-Process -WindowStyle Hidden -FilePath $SetupExe -ArgumentList @(
         '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/NOICONS',
         "/DIR=$failAppDir",
         "/TESTROOT=$failStateDir",
@@ -113,7 +116,7 @@ try {
     # 4. Upgrade failure rollback (downgrade DB to v1, inject failure during upgrade)
     Invoke-PyDb 'import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); [c.execute(s) for s in ["DROP INDEX annotations_scope_date","DROP INDEX messages_annotation","ALTER TABLE annotations DROP COLUMN title","ALTER TABLE annotations DROP COLUMN archived","ALTER TABLE annotations DROP COLUMN deleted","PRAGMA user_version=1"]]; c.commit(); c.close()' $db | Out-Null
     $logUpgFail = Join-Path $workRoot 'setup-upgrade-fail.log'
-    $procUpgFail = Start-Process -FilePath $SetupExe -ArgumentList @(
+    $procUpgFail = Start-Process -WindowStyle Hidden -FilePath $SetupExe -ArgumentList @(
         '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/NOICONS',
         "/DIR=$appDir",
         "/TESTROOT=$stateDir",
@@ -126,7 +129,7 @@ try {
 
     # Re-run clean upgrade to verify v1 -> v2 migration via real EXE
     $logMig = Join-Path $workRoot 'setup-migrate.log'
-    $procMig = Start-Process -FilePath $SetupExe -ArgumentList @(
+    $procMig = Start-Process -WindowStyle Hidden -FilePath $SetupExe -ArgumentList @(
         '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/NOICONS',
         "/DIR=$appDir",
         "/TESTROOT=$stateDir",
@@ -138,7 +141,7 @@ try {
 
     # 5. Default uninstall via real unins000.exe (must preserve history by default)
     $unins = Join-Path $appDir 'unins000.exe'
-    $procUnins = Start-Process -FilePath $unins -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait -PassThru
+    $procUnins = Start-Process -WindowStyle Hidden -FilePath $unins -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait -PassThru
     Require ($procUnins.ExitCode -eq 0) 'default standard uninstaller exits 0'
     Require (!(Test-Path -LiteralPath (Join-Path $uninstallRoot $expectedKey))) 'default uninstall removes HKCU uninstall key'
     Require (!(Test-Path -LiteralPath (Join-Path $stateDir 'profile\context-notes-installation.json'))) 'default uninstall removes plugin registration state'
@@ -148,13 +151,13 @@ try {
     Require ($sentinelAfterUnins -eq 'keep-me') 'default uninstall preserves database content intact'
 
     # 6. Reinstall then explicit RemoveHistory uninstall via real unins000.exe /REMOVEHISTORY=1
-    $procRe = Start-Process -FilePath $SetupExe -ArgumentList @(
+    $procRe = Start-Process -WindowStyle Hidden -FilePath $SetupExe -ArgumentList @(
         '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/NOICONS',
         "/DIR=$appDir",
         "/TESTROOT=$stateDir"
     ) -Wait -PassThru
     Require ($procRe.ExitCode -eq 0) 'reinstall after default uninstall exits 0'
-    $procUninsDel = Start-Process -FilePath (Join-Path $appDir 'unins000.exe') -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/REMOVEHISTORY=1' -Wait -PassThru
+    $procUninsDel = Start-Process -WindowStyle Hidden -FilePath (Join-Path $appDir 'unins000.exe') -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/REMOVEHISTORY=1' -Wait -PassThru
     Require ($procUninsDel.ExitCode -eq 0) 'explicit remove-history uninstaller exits 0'
     Require (!(Test-Path -LiteralPath $db)) 'explicit /REMOVEHISTORY=1 removes local history.db'
     Require (!(Test-Path -LiteralPath (Join-Path $uninstallRoot $expectedKey))) 'explicit remove-history uninstall removes HKCU uninstall key'
