@@ -18,7 +18,11 @@ Phase 4 下方的 39 项统计和 ephemeral Thread 描述属于历史基线；�
 
 5G～5J 已完成后台恢复、部分真实桌面验收、更新元数据显示与筛选控件对比度修正、SQLite 一致性升级备份和回滚失败保留、发布包审计。标准安装和完整工具浮窗 UI 仍有未通过/未测试项，最新状态见 [最终验收记录](docs/PHASE-5GJ-ACCEPTANCE.md)。发布产物仍为未签名 Preview，附 SHA256SUMS 与 release.json，不代表正式发布通过。
 
-Phase 6 已取得三旁注各三轮、完整客户端冷启动、原 Thread 续问的真实证据，并修正同客户端内 Companion 退出后漏恢复、安装 CLI 诊断污染 JSON 及 TESTROOT 卸载注册不隔离的问题。标准 EXE 仍受临时目录和 HKCU 写入拒绝限制，干净 Windows 与可信签名尚未通过；60 分钟观察结果和完整限制以 [Phase 6 验收报告](docs/PHASE-6-ACCEPTANCE.md) 为准。[第三方许可清单](docs/THIRD-PARTY-NOTICES.md) 不替代本项目尚待维护者确认的分发授权。
+Phase 6 最终收尾已完成（详见 [Phase 6 最终验收报告](docs/PHASE-6-ACCEPTANCE.md) 与 [收尾状态](docs/PHASE-6-CHECKPOINT.md)）：
+- 定位并修复标准 EXE 的 Temp/HKCU Error 5（根因：沙箱工作区继承 `Low Mandatory Level` 导致 Windows MIC 低完整性降级；复制至正常中完整性目录即可无需管理员运行），修复全新 `CODEX_HOME` 初始化及安装失败回滚与非零退出码，通过 **29/29** 标准 EXE 端到端测试与 **19/19** 便携管理器测试。
+- 完成最终构建完整 Codex Desktop 冷启动（0 重叠旧 PID、Watcher 自动拉起、真实 AI 问答落库 14/104）、真实窗口拖动重定位，以及 **30 分钟连续稳定性验收（61 样本、0 重启、0 错误日志、内存无增长；60 分钟采样已取消为 `OPTIONAL / NOT REQUIRED / NOT RUN`）**。
+- 全量回归全部通过：Release 构建 0 警告/0 错误，xUnit **106/106**，自测 **80/80**，标准 EXE **29/29**，便携管理 **19/19**，发布审计 **12/12**，Hook 诊断 **9/9**，权限探针 **6/6**，全仓库与载荷 `gitleaks` **0 泄露**。
+- **当前判定**：本机内部使用 **PASS**；公开预览分发 **BLOCKED**（缺独立干净 Windows OS 验收与维护者确认分发授权/隐私主体）；正式稳定版 **BLOCKED**（另缺可信代码签名）。本项目为独立第三方工具，未获 OpenAI 官方认证或授权。
 
 长时验收还发现打包启动器与桌面子进程对同名 AppData 路径存在不同视图。现改用 `%USERPROFILE%\.context-notes-native`，在全新数据库中保全两侧记录，旧文件不覆盖。检测到旧库时不会静默创建空替代库，升级说明见 [安装与迁移](docs/INSTALLATION.md)。
 

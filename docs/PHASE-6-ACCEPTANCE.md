@@ -6,11 +6,11 @@
 
 | 使用范围 | 判定 | 条件或阻断 |
 | --- | --- | --- |
-| 本机内部使用 | 待最终回归、采样及部署核验 | 真实划词、历史与 AI 已验证；间歇请求超时应可见且保留失败记录 |
-| 公开预览分发 | FAIL | 标准 EXE 仍失败、缺少干净 Windows 验收、项目分发授权与隐私联系主体待维护者确认 |
-| 正式稳定版 | BLOCKED | 还缺可信签名、完整桌面矩阵及上述分发条件 |
+| 本机内部使用 | **PASS** | 真实划词、窗口重定位、三旁注多轮、最终构建冷启动、30 分钟连续稳定性及全量回归均已通过；60 分钟采样已取消（`OPTIONAL / NOT REQUIRED / NOT RUN`） |
+| 公开预览分发 | **BLOCKED** | 标准 EXE 在正常中完整性目录与隔离 `/TESTROOT` 下已通过 29/29，但独立干净 Windows OS（Sandbox/VM）为 `NOT TESTED`，且 `LICENSE` 分发授权与 `PRIVACY.md` 发布主体/联系方式尚待维护者正式确认 |
+| 正式稳定版 | **BLOCKED** | 缺少可信 Authenticode 代码签名证书（`BLOCKED`）、独立干净 Windows OS 全流程验收、完整 UI 并发/永久删除矩阵，以及维护者确认的法律与隐私文本 |
 
-没有推送、正式 Tag 或 GitHub Release，没有购买证书、修改 ACL、静默提权或读取认证 Token。进行中的采样、最终构建及部署须在完成后追加，当前不表示所有 Phase 6 要求已通过。
+没有推送、没有创建正式 Tag 或 GitHub Release，没有购买证书、修改系统 ACL、静默提权或读取认证 Token。以下包含最终 30 分钟稳定性采样、标准安装器根因修复、最终构建冷启动及最终 CLEAN 构建与回归结果。
 
 ## Git 与阶段记录
 
@@ -154,3 +154,68 @@ README、CHANGELOG、安装、用户指南、排查、安全、隐私、签名�
 在已记录区间，Companion 22064、Watcher 23764、其 App Server 18476 始终各一个，无重启；UIA worker 按需为 0～1 个。Companion 私有内存 84.83→97.43 MiB、峰值 103.76 MiB，整机归一 CPU 均值 0.1668%、峰值 0.6445%；Watcher 私有内存 7.75→9.20 MiB，App Server 26.86→22.40 MiB。这些只是 23 分钟观察，不能证明完整长时稳定性。
 
 最终源码、程序、EXE/ZIP/SHA256SUMS 已保留；只有本页及 [恢复断点](PHASE-6-CHECKPOINT.md) 更新，不重新编译或部署。当前进度为 **6B 最终长时验收暂停，6C 安装/干净环境受阻，6D 未签名预览材料及回归完成**。可信正式发布仍 BLOCKED，不推送或创建正式版本。
+
+---
+
+## Phase 6 最终收尾验收（2026-11-19 14:17～15:14，接续 `3d05e77`）
+
+### 1. 分阶段提交记录
+
+基线：`3d05e77`（main，无远端，未 push，未建正式 Tag / GitHub Release）。
+
+| 提交 | 内容 |
+| --- | --- |
+| `88be709` | `fix(phase6b)`：定位并修复安装器 Temp/HKCU Error 5（Low Mandatory Level 根因）、`CODEX_HOME` 初始化、部署失败退出码与自动回滚、测试 AppId 对齐及 Watcher 轮询；新增 29 项标准 EXE 测试脚本 |
+| `46f5525` | `test(phase6c)`：记录标准 EXE 29/29 与便携管理器 19/19 验收及干净 Windows OS 限制 |
+| `3e081ee` | `test(phase6d)`：记录最终构建冷启动（0 重叠旧 PID）与真实窗口拖动重定位验收 |
+| `6aceb0e` | `docs(phase6e)`：更新第三方许可与 OpenAI 商标边界声明、安全审计、发布说明与 CHANGELOG（CLEAN 构建提交） |
+| 最终验收提交 | `test(phase6a)`：记录 30 分钟连续稳定性 PASS 及更新最终验收/断点/README 文档（不修改代码） |
+
+### 2. Phase 6A 长期运行稳定性验收（30 分钟标准）
+
+- **标准调整**：30 分钟连续采样为正式验收门槛；**60 分钟测试标记为 `OPTIONAL / NOT REQUIRED / NOT RUN`**，未执行，不作为发布阻断项。
+- **历史 47 样本保全**：`artifacts\runtime-6b-final-20261119-1345`（`13:44:45`～`14:07:51`，23.111 分钟，47 样本）完整保留、未覆盖；因暂停产生间断（情况 B），未与新采样拼接，重新执行完整连续 30 分钟采样。
+- **连续 30 分钟有效采样（PASS）**：输出目录 `artifacts\runtime-6a-30min-20261119-1443`，基线为冷启动前备份 `history-before-phase6d-coldstart-20261119-143409.db`。
+  - 时间窗：`2026-11-19 14:43:28.721 +08:00` ～ `15:13:28.834 +08:00`，耗时 **`1,800.282` 秒（`30.005` 分钟）**。
+  - 样本数：**61 个连续样本**，间隔均值 `30.00` 秒（最大 `30.28` 秒，无间断）。
+  - **Companion**：单一恒定 PID **`29208`**（`count=[1,1]`，无重启），私有内存 `107.46 → 105.79 MiB`（`delta -1.67 MiB`，峰值 `109.52 MiB`），整机归一 CPU 均值 `0.0239%`（峰值 `0.0454%`），句柄 `800 → 798`，线程 `27 → 22`。
+  - **Watcher**：单一恒定 PID **`10716`**（`count=[1,1]`，无重启），私有内存 `8.66 → 8.68 MiB`（`delta +0.02 MiB`），CPU 均值 `0.0002%`（峰值 `0.0032%`），句柄 `371 → 364`，线程 `8 → 5`。
+  - **项目 App Server**：单一恒定 PID **`27300`**（父进程 `29208`，`count=[1,1]`，0 孤儿进程），私有内存 `43.86 → 39.84 MiB`（`delta -4.02 MiB`），CPU 均值 `0.0016%`（峰值 `0.0130%`），句柄 `438 → 391`，线程 `38 → 25`。
+  - **UIA Worker**：`[0, 0]`（空闲期无常驻残留）。
+  - **异常日志与数据库**：30 分钟窗口内 `companion.log` 异常/错误/崩溃/超时行数为 **0**；SQLite 只读校验 `integrity=ok`、schema 2、**14 旁注 / 104 消息**、`baseline_message_difference=0`、`baseline_note_identity_difference=0`，DB/WAL/SHM 大小恒定（`98,304 / 127,752 / 32,768` 字节）。注：本轮紧接 `14:41`～`14:42` 真实冷启动与 AI 问答之后，采样期间为稳态后台驻留（`active_ui_workload_verified=false`）。
+
+### 3. Phase 6B / 6C 标准安装器修复与验收
+
+- **根因**：`<local-workspace>` 带有 Codex Windows Sandbox 继承 SACL `Mandatory Label\Low Mandatory Level:(OI)(CI)(NW)`，导致直接编译在 `artifacts\` 的 EXE 继承低完整性标签并被 Windows MIC 降级为低完整性进程（`S-1-16-4096`），从而被内核拒绝写入 `%TEMP%`、HKCU 卸载键与开始菜单（Error 5）。复制至正常中完整性目录后无需管理员权限、不修改 ACL 即可通过。详见 [PHASE-6C-INSTALLER.md](PHASE-6C-INSTALLER.md)。
+- **标准 EXE 端到端（`Test-StandardInstaller.ps1`，隔离 `/TESTROOT`，中完整性目录）**：**29/29 PASS**（全新安装、Temp/HKCU64 预检、原地重装、安装失败自动回滚与非零退出码 1、升级失败回滚恢复 schema v1、v1→v2 迁移备份、默认保留历史卸载、显式 `/REMOVEHISTORY=1` 删除历史卸载）。
+- **便携 ZIP 管理器（`Test-Installation.ps1`，Windows PowerShell 5.1）**：**19/19 PASS**；权限探针：**6/6 PASS**（`effective_admin=False`）；Hook 诊断：**9/9 PASS**。
+- **干净 Windows OS（Windows Sandbox / VM / 新账户）**：**NOT TESTED**（本机无可用虚拟化工具，启用功能或新建账户需管理员权限）。
+
+### 4. Phase 6D 最终构建冷启动与桌面验收
+
+- **最终构建冷启动（PASS）**：完整退出原 14 个 Codex 进程（重叠 PID = 0）→ 新 Codex 根 PID `11116`、新主 AppServer `9668` → 交互桌面 Watcher `10716` 自动拉起 Companion `29208` → `SessionStart:startup` Hook 单实例去重 → 项目 AppServer `27300` 按需初始化 `191 ms` → 选中助手回答并完成真实 AI 问答（9.25 秒，新增 `ann-ed886f9c125a4ca4a73c9669fc47881d`，落库 14/104，`baseline_msg_diff=0`，0 错误）。详见 [PHASE-6B-RUNTIME.md](PHASE-6B-RUNTIME.md)。
+- **窗口拖动重定位（PASS）**：真实拖动 Codex 窗口记录 4 组不同坐标与 `overlay_hidden_reason=window_moved` 隐藏/重定位，旁注框记录 `reason=user_drag`。详见 [PHASE-6A-DESKTOP.md](PHASE-6A-DESKTOP.md)。
+- **仍保留说明的桌面细项**：多行代码块选区（本轮冷启动日志为 `rectangle_count=1`，标记 `PARTIAL`）、永久删除与严格 UI 三浮窗同时并发重叠（标记 `NOT TESTED`）。
+
+### 5. 最终 CLEAN 构建、回归与安全验证（基于提交 `6aceb0e`）
+
+- 载荷：`artifacts\payload-4a22812f03ab4fcd85eb4015bf10d400`（`source_commit=6aceb0e...`，`source_dirty=false`，`signature=NotSigned`，`formal_release_ready=false`）。
+
+| 发布物（`artifacts\`） | 字节 | SHA-256 |
+| --- | ---: | --- |
+| `ContextNotesNative-0.3.0-setup.exe` | 2,289,879 | `8DDB13D4171A3946C26CC628945E404049CAE7F973F4B4D8E3F1547918C7FE86` |
+| `ContextNotesNative-0.3.0-portable.zip` | 240,539 | `A942C7E761A4B67D59A4BEBF009854A78DFC1652E1FAEC31FF2C6AF29C74BC41` |
+
+- 回归总览：
+  - `dotnet build -c Release`：**0 警告、0 错误**
+  - `dotnet test`：**106 / 106 PASS**（失败 0、跳过 0）
+  - `--self-test`：**80 / 80 PASS**
+  - `Test-StandardInstaller.ps1`：**29 / 29 PASS**
+  - `Test-Installation.ps1`：**19 / 19 PASS**
+  - `Test-Release.ps1`：**12 / 12 PASS**
+  - `Test-HookDiagnostic.ps1`：**9 / 9 PASS**
+  - `Test-InstallationPermissions.ps1`：**6 / 6 PASS**（`effective_admin=False`）
+  - PowerShell 静态解析：**11 / 11 脚本 0 错误**
+  - 数据库备份与恢复往返（临时副本）：**PASS**（`integrity=ok`, schema 2）
+  - `gitleaks` 真实扫描（中完整性副本）：全仓库 **45 个提交（905.17 KB）+ 最终载荷（56.46 KB）= 0 泄露**
+  - 可信代码签名：**BLOCKED**（本机无可用证书）；第三方许可、OpenAI 商标边界与隐私声明草案已审校并保留维护者确认门禁。

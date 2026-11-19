@@ -1,3 +1,40 @@
+# Phase 6 最终收尾状态（Release Candidate 准备完成）
+
+更新时间：2026-11-19 15:14，Asia/Shanghai。**所有可自主完成的 Phase 6 收尾工作均已完成**；无自动 push、无正式 Git Tag、无 GitHub Release，已部署程序保持正常运行。
+
+## 最终状态摘要
+
+- **仓库与分支**：`<repo-root>`，`main`，无远端，工作区 CLEAN。
+- **阶段提交链（基线 `3d05e77`）**：
+  - `88be709` `fix(phase6b): resolve installer temp and registry permissions`
+  - `46f5525` `test(phase6c): record standard installer and isolated validation`
+  - `3e081ee` `test(phase6d): complete final desktop and cold-start acceptance`
+  - `6aceb0e` `docs(phase6e): finalize release and privacy documentation`（CLEAN 发布构建提交）
+  - 本验收文档提交 `test(phase6a): complete 30-minute stability acceptance and finalize phase 6 reports`
+- **Phase 6A 稳定性（PASS，30 分钟标准）**：
+  - 新连续采样 `artifacts\runtime-6a-30min-20261119-1443`：**61 个样本 / 1,800.282 秒（30.005 分钟）**，间隔均值 `30.00s`、无间断。
+  - Companion `29208`（`107.46 → 105.79 MiB`，CPU 均值 `0.0239%`）、Watcher `10716`（`8.66 → 8.68 MiB`，CPU 均值 `0.0002%`）、项目 AppServer `27300`（`43.86 → 39.84 MiB`，CPU 均值 `0.0016%`）全程各 1 个、无重启、0 错误日志；SQLite `integrity=ok`、schema 2、14 旁注 / 104 消息、`baseline_message_difference=0`。
+  - 历史 47 样本（`artifacts\runtime-6b-final-20261119-1345`，23.111 分钟）完整保留，未拼接。
+  - **60 分钟测试**：`OPTIONAL / NOT REQUIRED / NOT RUN`。
+- **Phase 6B / 6C 安装器（标准 EXE PASS 29/29，干净 Windows OS NOT TESTED）**：
+  - 根因：`<local-workspace>` 继承 `Low Mandatory Level` SACL 导致 Windows MIC 将 `artifacts\` 下的 EXE 降级为低完整性进程。复制到中完整性目录后无需管理员权限、不改 ACL 即可正常安装/升级/回滚/卸载。
+  - 实测：`Test-StandardInstaller.ps1` **29/29 PASS**，`Test-Installation.ps1` **19/19 PASS**，`Test-InstallationPermissions.ps1` **6/6 PASS**（`effective_admin=False`）。干净 Windows OS（Sandbox/VM）无环境可用，标记 `NOT TESTED`。
+- **Phase 6D 最终构建冷启动与桌面验收（PASS，保留部分未测细项）**：
+  - 最终构建冷启动：原 14 个 Codex 进程全部退出（0 重叠），新根 PID `11116`，Watcher `10716` 自动拉起 Companion `29208`，项目 AppServer `27300` 按需启动（191ms），窗口拖动 4 组坐标变化与 `window_moved` 重定位，冷启动后真实 AI 问答落库 14/104（`baseline_msg_diff=0`）。
+  - 多行代码块入口记为 `PARTIAL`（本轮冷启动日志 `rectangle_count=1`）；永久删除与严格 UI 三浮窗同时重叠记为 `NOT TESTED`。
+- **Phase 6E 签名、许可与隐私（审计完成，正式发布仍 BLOCKED）**：
+  - 可信代码签名证书缺失 → `BLOCKED`；`LICENSE` 公开分发权与 `PRIVACY.md` 发布主体/联系方式仍需维护者正式确认；已补充 OpenAI/Codex 非官方第三方商标边界说明。
+  - `gitleaks` 全仓库 45 提交 + 最终载荷 = **0 泄露**；生产 0 NuGet 包、0 遥测/Cookie/Token 读取。
+- **最终 CLEAN 产物（提交 `6aceb0e`，`artifacts\payload-4a22812f03ab4fcd85eb4015bf10d400`）**：
+  - `ContextNotesNative-0.3.0-setup.exe`：2,289,879 字节，SHA-256 `8DDB13D4171A3946C26CC628945E404049CAE7F973F4B4D8E3F1547918C7FE86`
+  - `ContextNotesNative-0.3.0-portable.zip`：240,539 字节，SHA-256 `A942C7E761A4B67D59A4BEBF009854A78DFC1652E1FAEC31FF2C6AF29C74BC41`
+  - 最终回归：Release 0 警告/0 错误、xUnit 106/106、自测 80/80、标准 EXE 29/29、便携管理 19/19、发布审计 12/12、Hook 诊断 9/9、权限探针 6/6、DB 备份恢复往返 PASS。
+- **最终发布判定**：内部使用 **PASS**；公开预览版分发 **BLOCKED**（缺干净 Windows OS 验收与维护者确认 LICENSE/PRIVACY）；正式稳定版发布 **BLOCKED**（另缺可信代码签名）。
+
+---
+
+以下保留此前 14:08 暂停时的历史断点记录供追溯：
+
 # Phase 6 工作断点：用户要求暂停
 
 保存时间：2026-11-19 14:08，Asia/Shanghai。用户明确要求保存当前阶段并暂停。**不要自行恢复采样、桌面操作、AI 请求、安装、测试或发布，等待用户说继续。** 已部署应用保持运行，停止的是工作和采样。
