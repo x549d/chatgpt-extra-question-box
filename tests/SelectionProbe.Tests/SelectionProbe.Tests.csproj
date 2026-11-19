@@ -8,7 +8,6 @@
     <UseAppHost>false</UseAppHost>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <NuGetAudit>false</NuGetAudit>
-    <RestoreSources>$(UserProfile)\.nuget\packages</RestoreSources>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.11.0" />
