@@ -1,68 +1,75 @@
-# OpenAI Codex for Open Source 申请准备文档
+# OpenAI Codex for Open Source 申请准备文档（Phase 9F 更新版）
 
 - 日期：2026-11-19（Asia/Shanghai）
-- 目标项目：Codex for Open Source
+- 目标计划：OpenAI **Codex for Open Source**
 - 官方申请入口：<https://openai.com/form/codex-for-oss/>
-- 申请状态：**草稿已就绪，等待前置条件完成与维护者补充个人信息后人工确认提交（本阶段未擅自提交表单）**
+- 申请状态：**完整英文草稿与全部开源/隐私/CI 工程条件已就绪；未经维护者最终审核并填入个人信息，绝不代为提交表单**
 
 ---
 
-## 1. 申请权益与用户已确认的选择
+## 1. 申请权益与维护者已确认选择
 
-| 权益项目 | 选择 | 说明 |
+| 申请项目 | 选择 | 说明 |
 | --- | --- | --- |
-| ChatGPT Pro（6 个月） | **申请（Yes）** | 用于日常代码维护、Issue 排查、PR 审查与 Windows 桌面兼容性适配 |
-| API Credits（项目自动化维护） | **申请（Yes）** | 用于开源仓库维护自动化工作流（见第 4 节） |
-| Codex Security | **不申请（No）** | 按维护者明确决定不勾选 |
+| **ChatGPT Pro** | **申请（6 个月）** | 用于日常代码维护、Windows UIA/Codex 兼容性适配、Issue 排查与 PR 审查 |
+| **API Credits** | **申请（Yes）** | 用于开源仓库自动化维护工作流（PR 审查、Issue 分类、回归分析、代码质量与安全审查） |
+| **Codex Security** | **不申请（No）** | 按维护者明确决定不勾选 |
 
 ---
 
-## 2. 官方资格与前置条件核查
+## 2. 官方要求重新核实（2026-11-19 联网复核）
 
-根据 OpenAI Codex for Open Source 公开申请说明与表单结构核实：
+根据 OpenAI 官方网站（`openai.com/form/codex-for-oss` 及官方计划说明）重新核实当前资格与审核规则：
 
-- **面向人群**：活跃开源项目的主要维护者（Primary maintainer）或核心维护者（Core maintainer）。
-- **评审关注点**：项目在生态中的实际价值、可验证的公开源码与发布、持续维护记录与维护计划；官方同时注明即使项目不符合传统高星标/高下载量指标，若具有独特生态价值仍可如实说明并申请。
-- **表单字段与字符限制**：
-  - `First Name` / `Last Name`（必填，须由维护者亲自填写）
-  - `Email`（必填，须为当前活跃 ChatGPT 账号绑定的邮箱）
-  - `GitHub Username`（须为公开可见）
-  - `GitHub Repository URL`（须为 Public 仓库）
-  - `Maintainer Role`（单选：`Primary maintainer` / `Core maintainer`）
-  - `Why does this repository qualify?`（文本，上限 **500 字符**）
-  - `I'm interested in...`（多选：不勾选 `Codex Security`；勾选 `API credits for my project`）
-  - `OpenAI Organization ID`（申请 API Credits 时必填，来自 OpenAI API Dashboard）
-  - `How will you use API credits for your project?`（文本，上限 **500 字符**）
-  - `Anything else we should know?`（可选文本，上限 **500 字符**）
+- **维护者身份要求**：申请人须为公开 GitHub 仓库的 **Primary maintainer** 或 **Core maintainer**（拥有仓库写入/管理权限）；支持维护者本人申请或提名核心维护者。
+- **仓库与活跃度要求**：目标项目必须托管在 **Public GitHub 仓库**，具备清晰公开源码、持续维护行为（PR 审查、Issue 分类、版本发布管理）与生态价值。
+- **生态指标与早期项目政策**：OpenAI 会综合考察项目生态重要性、实际用途与维护记录，同时官方明确说明：**即使项目暂不符合传统高星标或高下载量指标，只要具备明确生态价值，仍鼓励如实说明并申请**。
+- **权益与审核流程**：
+  - **ChatGPT Pro**：常规支持周期为 **6 个月**（含 Codex 权限）；
+  - **API Credits**：需提供有效 `OpenAI Organization ID` 并说明具体自动化维护用途；
+  - **Codex Security**：按项目影响与需求有条件审批（本次明确不申请）；
+  - **审核方式**：滚动审核（rolling basis），由 OpenAI 酌情决定并通过邮件通知结果。
+- **表单核心字段与字符上限**：
+  - `First Name` / `Last Name`（维护者本人必填）
+  - `Email`（活跃 ChatGPT 账号绑定邮箱，维护者本人必填）
+  - `GitHub Username`（公开可见：`x549d`）
+  - `GitHub Repository URL`（公开仓库：`https://github.com/x549d/context-notes-native`）
+  - `Maintainer Role`（`Primary maintainer`）
+  - `Why does this repository qualify?`（≤ 500 字符）
+  - `I'm interested in...`（勾选 `API credits for my project`；**不勾选** `Codex Security`）
+  - `OpenAI Organization ID`（`org-...`，维护者本人从 OpenAI API 后台获取并填写）
+  - `How will you use API credits for your project?`（≤ 500 字符）
+  - `Anything else we should know?`（≤ 500 字符）
 
-### 当前前置条件检查表
+### 申请前置条件核查清单
 
-| 前置条件 | 当前状态 | 备注 |
+| 前置条件 | 状态 | 说明 |
 | --- | --- | --- |
-| GitHub 个人资料公开 (`x549d`) | **已完成** | 经公开 GitHub API 核实可见 (`login=x549d`) |
-| GitHub 仓库设为 Public (`https://github.com/x549d/context-notes-native`) | **已完成** | 经未登录 GitHub API 核实 `visibility=public`、`private=false` |
-| MIT 许可证生效（根 `LICENSE` 与 `plugin.json`） | **已完成** | 根 `LICENSE`（`Copyright (c) 2026 x549d`）已生效，GitHub API 识别 `license=MIT` |
-| 公开版 `README.md` 与文档完整 | **已完成** | 包含完整安装、使用、隐私、安全、贡献与第三方许可文档 |
-| 公开可下载的 GitHub Release（`v0.3.0` EXE/ZIP/SHA256SUMS） | **已完成** | 已正式发布 <https://github.com/x549d/context-notes-native/releases/tag/v0.3.0>，3 个资产均已验证可公开下载 |
-| 维护者身份与 OpenAI 账号字段 | **待维护者本人填写** | 见第 5 节缺失个人信息清单（不猜测、不代填、不擅自提交） |
+| GitHub 个人资料公开 (`x549d`) | **已完成** | 经公开 GitHub API 核实可见 |
+| 全 Git 历史隐私清理与 Gitleaks 0 泄露 | **已完成** | 个人邮箱已全面替换为 `348141032+x549d@users.noreply.github.com`，历史路径/用户名/PDB 均 0 命中 |
+| MIT 许可证生效（根 `LICENSE` + `plugin.json`） | **已完成** | `Copyright (c) 2026 x549d`，0 生产第三方 NuGet 依赖 |
+| GitHub Actions Windows CI 与贡献模板 | **已完成** | 已配置 `.github/workflows/ci.yml`、手动打包工作流、4 类 Issue 模板与 PR 模板 |
+| 公开仓库、准确 About 简介与公开 `v0.3.0` Release | **待维护者恢复 Public 后公网复核** | Phase 9A 重写期间临时设为 Private，推送完毕恢复 Public 并更新简介与重建包后即时生效 |
+| 维护者个人姓名、ChatGPT 邮箱与 `OpenAI Organization ID` | **待维护者本人填写** | 不猜测、不代填、不擅自提交 |
 
 ---
 
-## 3. 核心英文定位说明（供项目介绍与扩展阅读使用）
+## 3. 项目英文核心介绍（供扩展介绍使用）
 
-> Context Notes Native is a native Windows companion for Codex Desktop Chat. It enables users to attach contextual notes to selected assistant responses, preserve exact quoted content, ask follow-up questions in independent annotation windows, and maintain persistent local conversation history.
+> Context Notes Native is a native Windows companion for Codex Desktop Chat. It allows users to select assistant responses, create contextual annotations, preserve exact quoted content, ask multi-turn follow-up questions in independent annotation windows, and maintain persistent local conversation history.
 
-### 项目事实要点（全部基于已验证实测，零虚构数据）
+### 核实无虚构的核心亮点
 
-- **真实可运行的桌面软件**：基于 C# / .NET 10 / WPF / Windows UI Automation / Win32 API / SQLite 构建，提供当前用户免管理员权限安装器（`setup.exe`）和独立便携包（`portable.zip`）及 `SHA256SUMS`。
-- **深度原生集成 Codex 生态**：仅通过官方 `codex.exe app-server`（stdio JSON-RPC 2.0）和官方插件 `SessionStart` Hook 集成，不注入 Codex 进程、不读取 Cookie、不提取 Token、不存储登录凭据。
-- **核心交互体验**：选中助手回答后在选区旁弹出不抢焦点的「提问」入口，点击打开独立旁注小框、保留原文引用、自动聚焦输入框、完整支持中文输入法（IME）、实时流式输出、多轮连续追问、多旁注独立并发、取消生成与本地 SQLite 持久化历史管理（搜索、归档、软删除/永久删除与恢复）。
-- **已完成的测试与安全审计**：Release 0 警告/0 错误、106 项 xUnit 单元测试、80 项内置自测、29 项标准 EXE 安装/升级/回滚/卸载端到端验证、19 项便携安装管理验证、23 项独立合成库永久删除验证、三浮窗真实并发与重启恢复验证、30 分钟连续稳定性采样（61 样本、0 重启、0 错误日志），以及 0 生产 NuGet 依赖和全历史 `gitleaks` 0 凭据泄露审计。
-- **诚实说明早期阶段**：本项目为刚公开的早期开源软件（0.3.0），目前尚无外部社区 Stars、下载量或第三方 PR 数据；申请材料不虚构任何采用指标。
+- **Codex Desktop 原生生态集成**：严格通过官方 `codex.exe app-server`（stdio JSON-RPC 2.0）与官方插件 `SessionStart` Hook 集成，不注入进程、不修改 Codex 二进制、不读取 Cookie 或 OAuth Token。
+- **Windows 原生交互体验**：基于 .NET 10 / WPF / UI Automation / Win32 实现，无剪贴板污染、不抢焦点浮动入口（`WS_EX_NOACTIVATE`）、多显示器/混合 DPI 适配、完整中文 IME 支持与独立旁注多轮流式对话。
+- **本地持久化与用户数据安全**：基于 Windows 系统自带 `winsqlite3.dll`（SQLite WAL 模式）持久化历史、支持 `Ctrl+Alt+H` 检索/归档/软删除/二次确认永久删除与在线备份，默认卸载保留用户数据。
+- **隐私保护与可审计性**：0 生产 NuGet 依赖、0 遥测、0 凭据读取；完整 Git 历史与 `SelectionProbe.dll` 构建产物（`-p:DebugType=none`）均已完成个人邮箱、本地路径与 Gitleaks 零泄露清理。
+- **自动化测试与持续维护体系**：配置 GitHub Actions Windows CI（Release 0 警告/0 错误、106 项 xUnit、80 项内置自测、23 项合成库删除验收、权限预检与 PowerShell 语法校验），辅以 29 项标准 EXE 安装器验证、19 项便携安装验证、结构化 Issue/PR 模板与明确版本发布流程。
+- **如实披露早期阶段**：本项目刚完成 `v0.3.0` 公开开源与隐私整理，仍处于早期公开阶段，不虚构任何 Stars、Forks、下载量、PR 或社区用户数。
 
 ---
 
-## 4. 英文表单逐项填写草稿（严格控制在 500 字符以内）
+## 4. 英文申请表逐项草稿（严格控制在 500 字符以内）
 
 ### 基础字段
 
@@ -70,51 +77,40 @@
 | --- | --- |
 | First Name | `[待维护者填写：本人名]` |
 | Last Name | `[待维护者填写：本人姓]` |
-| Email (ChatGPT account email) | `[待维护者填写：活跃 ChatGPT 账号邮箱]` |
+| Email | `[待维护者填写：接收 6 个月 ChatGPT Pro 的活跃 ChatGPT 账号邮箱]` |
 | GitHub Username | `x549d` |
 | GitHub Repository URL | `https://github.com/x549d/context-notes-native` |
 | Maintainer Role | `Primary maintainer` |
-| Feature Selection — API credits for my project | **Checked (Yes)** |
-| Feature Selection — Codex Security | **Unchecked (No)** |
-| OpenAI Organization ID | `[待维护者填写：org-...，从 platform.openai.com 设置页获取]` |
+| API credits for my project | **Checked（Yes）** |
+| Codex Security | **Unchecked（No）** |
+| OpenAI Organization ID | `[待维护者填写：org-...，从 platform.openai.com 获取]` |
 
-### 文本字段 1：`Why does this repository qualify?`（实测 470 / 500 字符）
+### 文本字段 1：`Why does this repository qualify?`（487 / 500 字符）
 
 ```text
-Context Notes Native is a native Windows companion for Codex Desktop Chat built with .NET 10, WPF, UIA, and the official Codex App Server (stdio JSON-RPC). It lets users attach contextual notes to selected answers, keep exact quotes, ask multi-turn follow-ups in independent windows, and store local SQLite history. Newly open-sourced under MIT (early public stage), it ships runnable 0.3.0 Windows packages backed by 106 xUnit tests, 80 self-tests, and security audits.
+Context Notes Native is a native Windows companion for Codex Desktop Chat. It allows users to select assistant responses, create contextual annotations, preserve exact quoted content, ask multi-turn follow-up questions in independent annotation windows, and maintain persistent local conversation history. Built with .NET 10, WPF, UIA, and official Codex App Server (stdio JSON-RPC), it is early-stage MIT open source with Windows CI, 106 xUnit tests, 80 self-tests, and v0.3.0 packages.
 ```
 
-### 文本字段 2：`How will you use API credits for your project?`（实测 361 / 500 字符）
+### 文本字段 2：`How will you use API credits for your project?`（398 / 500 字符）
 
 ```text
-API credits will support maintainer automation for this open-source repository: automated GitHub PR reviews (WPF, UIA, Win32, SQLite, and installer safety), regression test failure analysis, issue triage and categorization, pre-release security and dependency/privacy checks, and drafting release notes and documentation updates for ongoing Windows maintenance.
+API credits will be used solely for practical open-source maintenance of this repository: AI-assisted pull request reviews (WPF, Windows UIA, Win32, SQLite WAL, and installer safety), automated issue triage and categorization, regression test failure analysis, code quality checks, pre-release security and privacy reviews, and maintaining release documentation as Codex Desktop evolves on Windows.
 ```
 
-### 文本字段 3：`Anything else we should know?`（实测 440 / 500 字符）
+### 文本字段 3：`Anything else we should know?`（486 / 500 字符）
 
 ```text
-Integrates strictly via official Codex App Server stdio JSON-RPC and SessionStart hooks—no process injection, cookie access, or credential storage. Ships 0.3.0 Windows installer and portable ZIP with SHA256SUMS, backed by concurrency, restart-recovery, deletion, and 30-min stability checks. Planned maintenance tracks Codex Desktop UIA updates and community issues. Requesting 6-month ChatGPT Pro and API credits only (not Codex Security).
+Integrates strictly via official codex.exe app-server stdio JSON-RPC and SessionStart hooks—zero process injection, cookie access, telemetry, or production NuGet deps. Full Git history and v0.3.0 binaries passed privacy and Gitleaks audits. Early public stage (no fabricated adoption metrics yet); backed by Windows CI, installer/upgrade/rollback tests, and structured issue templates for Codex Desktop compatibility. Requesting 6-month ChatGPT Pro and API credits (not Codex Security).
 ```
 
 ---
 
-## 5. 缺失个人信息清单（须由维护者本人核对填写）
+## 5. 提交前人工确认清单
 
-严禁代理猜测或代填以下敏感/个人信息：
+在维护者亲自打开 <https://openai.com/form/codex-for-oss/> 提交前，请逐项核对：
 
-1. **First Name / Last Name**：维护者真实姓名（与申请表要求一致）。
-2. **ChatGPT 账号邮箱**：须与计划接收 6 个月 ChatGPT Pro 权益的活跃 ChatGPT 账号一致。
-3. **OpenAI Organization ID**（`org-...`）：从 OpenAI API Platform（Settings → Organization → General）查看并亲自填入，不要提交任何 API Key 或密码。
-4. **GitHub 公开资料核对**：建议在提交申请前于 GitHub 个人资料页确认简介与已公开的 `x549d/context-notes-native` 仓库可正常访问。
-
----
-
-## 6. 最终提交前人工确认清单
-
-在打开 <https://openai.com/form/codex-for-oss/> 提交前，请逐项确认：
-
-- [x] `https://github.com/x549d/context-notes-native` 已为 **Public**，未登录浏览器/API 核实可公开访问。
-- [x] 根目录 `LICENSE` 已更新为正式 **MIT** 许可证且 GitHub 已识别为 `MIT`。
-- [x] 已发布公开 **GitHub Release `v0.3.0`**（<https://github.com/x549d/context-notes-native/releases/tag/v0.3.0>），附带可下载的 `ContextNotesNative-0.3.0-setup.exe`、`ContextNotesNative-0.3.0-portable.zip` 与 `SHA256SUMS`。
-- [ ] 表单中已勾选 **API credits**，且确认 **未勾选 Codex Security**。
-- [ ] 已由维护者本人核实上述英文文本无夸大或虚构数据，并填入真实姓名、ChatGPT 邮箱与 OpenAI Organization ID 后手动点击提交。
+- [ ] GitHub 仓库 `https://github.com/x549d/context-notes-native` 已恢复为 **Public**，About 简介已更新为公开项目说明。
+- [ ] GitHub Release `v0.3.0` 已更新为隐私洁净重建版产物（`setup.exe`、`portable.zip`、`SHA256SUMS`）且可公开下载。
+- [ ] GitHub Actions `Windows CI` 在公开 `main` 分支上运行通过。
+- [ ] 表单勾选了 **API credits**，且确认 **未勾选 Codex Security**。
+- [ ] 已由维护者本人核实上述英文文本完全真实、无任何虚构数据，并亲手填入姓名、ChatGPT 邮箱与 `OpenAI Organization ID` 后点击提交。
