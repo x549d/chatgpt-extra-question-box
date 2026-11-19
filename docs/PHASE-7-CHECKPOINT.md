@@ -1,6 +1,6 @@
 # Phase 7 接续检查点
 
-2026-11-19。项目 `<repo-root>`，main，初始无远端。用户现已授权 GitHub 私有源码仓库 `https://github.com/x549d/context-notes-native`，仓库已创建；最终推送与远端 SHA 对应关系在交付时核对。基线 341dd6e；最新详细状态见 [Phase 7 验收报告](PHASE-7-ACCEPTANCE.md)。
+2026-11-19。项目 `<repo-root>`，main，origin 为用户明确批准的新 GitHub 私有仓库 `https://github.com/x549d/context-notes-native.git`。已推送全部提交历史，首次 main 远端 SHA 与本地 `9794f34442155637d592b856452a874a53666896` 一致；结果提交继续同步，交付时核对最终 SHA。基线 341dd6e；最新详细状态见 [Phase 7 验收报告](PHASE-7-ACCEPTANCE.md)。
 
 已完成：独立合成库永久删除 23/23；技术 PRIVACY 云处理及旧备份范围；Proprietary/第三方/品牌审查与维护者决定清单；证书与签名状态只读复核。生产实现未改动。禁止重新采样 30/60 分钟或重跑已通过 Phase 6 安装器专项。
 
@@ -15,7 +15,7 @@
 
 本地 VMware 完整克隆保留在 `artifacts\phase7-vm-isolated-gui`，原 VM 未启动或删除；结束 `vmrun list` 为 0。没有启用管理员功能、创建系统账户或修改系统安全配置。
 
-已从 CLEAN `586953808e57af4a663f27dd6eafa145e3abf571` 生成最终未签名 Preview，载荷 `artifacts\payload-4993670973654d0e8fd1485a9661d26b`。新包发布审计 12/12、9 个文档相对链接无断链、载荷泄露扫描 0；SHA256SUMS 均匹配。正常用户交付目录为 `%USERPROFILE%\Downloads\ContextNotesNative-0.3.0-Phase7-20261119`，最终哈希详见验收报告。包不含验收工程、测试数据库、日志、认证文件或源代码缓存。没有部署新运行库，当前后台保持原 Phase 6 已验收版本。
+已从 CLEAN `9794f34442155637d592b856452a874a53666896` 生成最终未签名 Preview，载荷 `artifacts\payload-f8c21da40e7347ee88442759fe09df5d`，随包说明已含最新 UI 结论。新包发布审计 12/12、9 个文档相对链接无断链、载荷泄露扫描 0；SHA256SUMS 均匹配。正常用户交付目录为 `%USERPROFILE%\Downloads\ContextNotesNative-0.3.0-Phase7-20261119`，最终哈希详见验收报告。包不含验收工程、测试数据库、日志、认证文件或源代码缓存。没有部署新运行库，重启后的后台仍为原 Phase 6 已验收版本。
 
 原 Phase 6 顶层 EXE/ZIP/哈希保留在 `artifacts\phase6-preserved-before-phase7-20261119`；不要把新的 source_commit 与生产后台版本混为一谈。随包用户文档不包含仓库内部验收报告，因此打包之后的结果记录提交无须再次打包。最终 HEAD 由本报告与验收报告的最终审计提交确定，交付回复中给出精确哈希。仅按用户新授权推送指定 GitHub 私有源码仓库，不建 Tag、不创建 Release、不公开仓库、不上传用户库/日志/备份。
 

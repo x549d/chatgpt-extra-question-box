@@ -5,10 +5,10 @@
 ## A. Git 与变更范围
 
 - 初始 HEAD `341dd6e`，分支 main，初始工作区 CLEAN，无远端。
-- 新提交：`6cd8b0f`（隔离删除验收工程与结果）、`b4142ce`（技术隐私和维护者决定）、`ff63d31`（独立环境与云许可边界）、`f23b2e5`（真实浮窗证据）、`2c0e60e`（发布材料与阶段报告）、`5869538`（随包安全文档链接修正），以及包含本报告最终审计结果的提交；完整列表见 `git log 341dd6e..HEAD --oneline`。
+- 新提交：`6cd8b0f`（隔离删除验收工程与结果）、`b4142ce`（技术隐私和维护者决定）、`ff63d31`（独立环境与云许可边界）、`f23b2e5`（早期浮窗证据）、`2c0e60e`（发布材料）、`5869538`（随包文档链接）、`adbc7bc`（首轮包审计）、`9794f34`（真实三并发及重启恢复），以及包含本报告最终结果的提交；完整列表见 `git log 341dd6e..HEAD --oneline`。
 - 最终 HEAD 为包含本报告最终审计结果的提交，可用 `git log -1 --format=%H -- docs/PHASE-7-ACCEPTANCE.md` 精确取得；避免在提交自身内嵌无法自洽的自身哈希。最终交付回复另记录实际 HEAD。
 - 未修改 src、installer、scripts 或 codex-plugin；仅新增使用已发布实现的独立合成库验收项目及文档。没有新增依赖，没有改动 OAuth、UIA、数据模型或生产部署。
-- 用户后续明确选择仅 GitHub 交付，并批准新建私有仓库 `x549d/context-notes-native`；该私有仓库已创建。最终提交可推送至此指定仓库，远端 SHA 与 CLEAN 状态在交付前核对；这不包含公开仓库、Tag 或 GitHub Release 授权。
+- 用户后续明确选择仅 GitHub 交付，并批准新建私有仓库 [x549d/context-notes-native](https://github.com/x549d/context-notes-native)。已创建并成功推送 main 与全部原有提交历史，首次远端核对为 `9794f34442155637d592b856452a874a53666896`，与当时本地完全一致；第一次只读复核有临时 TLS 断连，原有安全设置下重试成功，未禁用验证。追加本结果后再同步最终提交；没有公开仓库、Tag、GitHub Release 或附件资产上传。
 
 ## B. 干净 Windows 测试
 
@@ -47,7 +47,7 @@ LICENSE 维持 **Proprietary**，未擅自授予分发权或声明代码权属�
 | 目标 | 结果 | 尚需完成 |
 | --- | --- | --- |
 | 当前用户本机内部使用 | PASS（Phase 6 + 本轮 UI/删除专项） | 不等同干净 OS 验收 |
-| 指定 GitHub 私有源码仓库 | 已授权，创建完成 | 最终提交推送并核对远端 SHA；交付回复记录实际结果 |
+| 指定 GitHub 私有源码仓库 | PASS（已创建、已推送，首次 SHA 一致） | 结果记录提交继续同步；交付回复给出最终 SHA |
 | 私有预览分发 | BLOCKED | 维护者权属/分发许可及发布者信息 |
 | 公开预览分发 | BLOCKED | 独立 Windows 全流程、维护者许可/隐私/品牌决定 |
 | 正式稳定版 | BLOCKED | 上述项目及可信签名、签名后必要回归 |
@@ -56,15 +56,15 @@ Phase 6 已通过的 106 xUnit、80 自测、29 安装器、19 便携管理、12
 
 ## 本轮发布物核对
 
-已从 **CLEAN 提交 `586953808e57af4a663f27dd6eafa145e3abf571`** 生成最终未签名 Preview。release.json 为 source_dirty=false、channel=preview、formal_release_ready=false、signature=NotSigned。之后仅追加仓库验收报告，没有改变随包用户文档或生产实现；最终 Git HEAD 与打包源码 HEAD 因结果记录提交而不同。
+已从 **CLEAN 提交 `9794f34442155637d592b856452a874a53666896`** 生成最终未签名 Preview，随包说明已包含用户刚补齐的三浮窗并发结论。release.json 为 source_dirty=false、channel=preview、formal_release_ready=false、signature=NotSigned。之后仅追加仓库验收报告，没有改变随包用户文档或生产实现；最终 Git HEAD 与打包源码 HEAD 因结果记录提交而不同。
 
-- 最终载荷：`artifacts\payload-4993670973654d0e8fd1485a9661d26b`。
+- 最终载荷：`artifacts\payload-f8c21da40e7347ee88442759fe09df5d`。
 - 便于本机运行的正常用户交付目录：`%USERPROFILE%\Downloads\ContextNotesNative-0.3.0-Phase7-20261119`。含 EXE、ZIP、SHA256SUMS、逐物哈希、RELEASE-README.md 和 CHANGELOG.md；与仓库 artifacts 下最终文件哈希相同。直接运行工作区低完整性目录的限制仍适用，未修改 ACL。
-- EXE **2,291,479 字节**；SHA-256 `FF7F73C8CCCADF4896BACC34B220177106900C4A31BCFF6014EFB9C66F1EBE42`。
-- ZIP **247,726 字节**；SHA-256 `CD288229FDBE6254D116D561F9D8219C90BC920999564FAB87104FAD5C79F973`。
+- EXE **2,291,711 字节**；SHA-256 `3D8B3F925FBBA1F3F42E98A4BA2AFA9A69E5856863E22DE827DC7A84E46C67CB`。
+- ZIP **247,968 字节**；SHA-256 `C275938C53AFA9489C98FA4647BAECB1FB1D3D43FDCB1466DACB48821EDA2A5D`。
 - 新包发布审计 **12/12**；ZIP 所有载荷逐文件匹配 SHA256.json 与 staging，setup 从同一个 staging 的递归 Files 规则编译成功。本轮未运行或解包安装器来声称新环境安装通过。
 - 无测试数据库、聊天历史、日志、认证文件、源码/测试工程、obj 或 PDB；运行所需插件 bin 目录属于必要载荷。随包 Markdown 相对文档链接核对 **9 个，断链 0**。
-- 最终载荷脱敏 gitleaks 扫描 **0 泄露**；各阶段提交前差异扫描均为 0。原 Phase 6 EXE/ZIP/SHA 已保留在 `artifacts\phase6-preserved-before-phase7-20261119`，旧 payload 及稳定性证据未覆盖。
-- 使用已有官方 Inno 6.7.4 编译器的相同哈希副本，未安装新依赖；未启动新安装器、未部署新运行库或重启生产后台。构建日志：`<local-temp>\context-notes-phase6-results\phase7-release-final-build.txt`。
+- 最终载荷脱敏 gitleaks 扫描 **0 泄露**；完整 Git 历史扫描 0，各阶段新增差异扫描均为 0。Git 跟踪文件中未发现数据库、日志、认证文件、密钥、二进制或构建缓存。原 Phase 6 EXE/ZIP/SHA 保留在 `artifacts\phase6-preserved-before-phase7-20261119`，旧 payload 及稳定性证据未覆盖。
+- 使用已有官方 Inno 6.7.4 编译器的相同哈希副本，未安装新依赖；未启动新安装器或部署新运行库。仅为本轮 UI 专项正常重启现有 Companion，未重跑完整 Codex 冷启动验收。构建日志：`<local-temp>\context-notes-phase6-results\phase7-release-final-build.txt`。
 
 最终保存门禁为 diff --check 通过、提交完成后 status --short 为空（CLEAN）；交付回复记录实际 HEAD 及指定私有仓库的远端同步结果。用户已补齐严格 UI 并发操作并授权私有源码同步；独立 OS、公众法律身份和签名阻断保持，云许可证按其明确选择保留待确认。
