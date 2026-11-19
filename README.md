@@ -23,6 +23,26 @@
 
 ---
 
+## 实际运行演示 / Screenshots
+
+以下是 **Context Notes Native v0.3.0 的真实 Windows 运行截图**，展示在 Codex Desktop Chat 中选中助手回答、引用原文，以及在旁注窗口中继续向 AI 提问。
+
+### 1. 选区引用、AI 回答与继续追问
+
+![Context Notes Native 实际运行：原文引用、AI 回答、继续追问输入框](docs/mmexport1795104255108.png)
+
+*在 Codex Chat 原文旁打开独立的 Context Notes 窗口，保留所选内容并支持持续追问。*
+
+### 2. 划词后出现「提问」按钮
+
+![Codex Desktop Chat 划词后显示 Context Notes 提问按钮](docs/mmexport1795104261318.png)
+
+*选中助手回答的文字时，选区旁显示浮动「提问」入口，无需复制粘贴。*
+
+更多完整交互说明参见 [操作演示文档](docs/DEMO.md)。
+
+---
+
 ## 项目介绍 / Overview
 
 **Context Notes Native** 专为 Windows 版 **Codex Desktop** 的 **Chat 模式**设计，提供原生、低侵入的“划词旁注追问”体验：
@@ -68,7 +88,7 @@
 
 完整的 6 大核心场景交互说明、界面细节与脱敏截屏规范请查看 **[docs/DEMO.md](docs/DEMO.md)**。
 
-> **关于截图的诚实说明**：为避免暴露维护者真实私密对话或生产历史数据，本仓库不使用任何伪造 UI 或概念图冒充真实截图；待在纯净示例会话中完成脱敏实拍后将按 [docs/DEMO.md](docs/DEMO.md) 规范补充真实 PNG 截图。
+> **真实截图**：本页上方已展示选区提问按钮和旁注回答窗口；其他演示场景及未来截图补充规范见 [docs/DEMO.md](docs/DEMO.md)。
 
 ---
 
