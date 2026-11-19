@@ -1,0 +1,56 @@
+name: Installation Problem
+description: Report issues installing, upgrading, registering the Codex plugin/hook, or uninstalling.
+title: "[Install]: "
+labels: ["installation", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please review [docs/INSTALLATION.md](https://github.com/x549d/context-notes-native/blob/main/docs/INSTALLATION.md) and [docs/TROUBLESHOOTING.md](https://github.com/x549d/context-notes-native/blob/main/docs/TROUBLESHOOTING.md) first.
+  - type: dropdown
+    id: package_type
+    attributes:
+      label: Package Type
+      options:
+        - Windows Standard Installer (setup.exe)
+        - Portable ZIP (portable.zip + Manage-Installation.ps1)
+        - Source Build (dotnet build / Install-Plugin.ps1)
+    validations:
+      required: true
+  - type: dropdown
+    id: stage
+    attributes:
+      label: Stage Where Failure Occurred
+      options:
+        - SHA-256 verification / download
+        - Running setup.exe (SmartScreen / permissions / Error 5)
+        - Plugin marketplace or SessionStart Hook registration
+        - Startup watcher shortcut / first launch
+        - In-place upgrade / database migration
+        - Uninstall
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Environment Details
+      placeholder: Windows version/build, .NET 10 Desktop Runtime installed (Yes/No), Codex Desktop installed (Yes/No)
+    validations:
+      required: true
+  - type: textarea
+    id: error_output
+    attributes:
+      label: Error Message or Exit Code
+      description: Paste the exact error message (redact your Windows username/paths).
+      render: text
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-Checks
+      options:
+        - label: I verified the download against `SHA256SUMS`.
+        - label: I ran the installer from a normal user directory (e.g., Downloads or Desktop, not a sandbox/low-integrity folder).
+        - label: I removed personal usernames, tokens, and database files from this report.
+          required: true

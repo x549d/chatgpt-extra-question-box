@@ -1,0 +1,62 @@
+name: Bug Report
+description: Report an unexpected crash, UI glitch, streaming error, or history issue.
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting a bug! **Please do NOT attach `history.db`, personal conversation text, OAuth tokens, cookies, or logs containing personal paths.**
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Clear, concise description of the bug.
+      placeholder: Describe what went wrong...
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: Minimal steps needed to reproduce the issue.
+      value: |
+        1. Open Codex Desktop in Chat mode
+        2. Select assistant response text
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected vs Actual Behavior
+      placeholder: Expected... / Actual...
+    validations:
+      required: true
+  - type: input
+    id: app_version
+    attributes:
+      label: Context Notes Native Version & Package Type
+      placeholder: e.g., v0.3.0 (setup.exe / portable.zip / built from source)
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Windows & .NET Environment
+      placeholder: e.g., Windows 11 24H2 x64, .NET 10 Windows Desktop Runtime x64, Codex Desktop version
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Metadata-Only Diagnostics (Optional)
+      description: Output of `SelectionProbe.exe --status` and `SelectionProbe.exe --watcher-status` (redact personal usernames/paths).
+      render: text
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy Check
+      options:
+        - label: I confirm this report contains no personal chat contents, tokens, cookies, or SQLite database files.
+          required: true

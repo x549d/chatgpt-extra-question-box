@@ -1,0 +1,48 @@
+name: Compatibility Report
+description: Report how Context Notes Native behaves with your Codex Desktop version, Windows build, or multi-DPI display setup.
+title: "[Compatibility]: "
+labels: ["compatibility"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Real-world compatibility reports help keep UIA selection tracking and Codex App Server integration reliable as Windows and Codex Desktop evolve. Thank you for testing!
+  - type: input
+    id: app_version
+    attributes:
+      label: Context Notes Native Version
+      placeholder: e.g., v0.3.0 (setup.exe / portable.zip)
+    validations:
+      required: true
+  - type: input
+    id: codex_version
+    attributes:
+      label: Codex Desktop Version
+      placeholder: e.g., version shown in Codex Desktop Settings / About
+    validations:
+      required: true
+  - type: input
+    id: windows_setup
+    attributes:
+      label: Windows Version & Display Setup
+      placeholder: e.g., Windows 11 24H2 x64, dual monitors (150% + 100% DPI)
+    validations:
+      required: true
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Real Usage Verification Checklist (check all that worked)
+      options:
+        - label: Installation / plugin registration succeeded without admin privileges
+        - label: Selecting assistant response in Chat mode shows the floating Ask button
+        - label: Clicking Ask opens the inline annotation window with exact quoted text
+        - label: Real AI streaming response works and Stop cancels generation
+        - label: Multiple concurrent annotation windows work without cross-talk
+        - label: Ctrl+Alt+H History window loads, searches, and restores notes
+  - type: textarea
+    id: issues_or_suggestions
+    attributes:
+      label: Compatibility Issues or Improvement Suggestions
+      description: Describe any UIA mismatch, layout offset, IME issue, or feature you would like next (redact personal chat content).
+    validations:
+      required: true

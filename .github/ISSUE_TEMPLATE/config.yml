@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security Vulnerability Disclosure
+    url: https://github.com/x549d/context-notes-native/blob/main/SECURITY.md
+    about: Please review SECURITY.md before reporting security-sensitive issues.
+  - name: Installation & Troubleshooting Docs
+    url: https://github.com/x549d/context-notes-native/blob/main/docs/TROUBLESHOOTING.md
+    about: Check common Windows setup, SmartScreen, and Codex Hook solutions first.
