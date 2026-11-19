@@ -39,12 +39,12 @@
 
 | 前置条件 | 当前状态 | 备注 |
 | --- | --- | --- |
-| GitHub 个人资料公开 (`x549d`) | **已就绪** | 经公开 GitHub API 核实可见 (`login=x549d`, `public_repos=3`) |
-| GitHub 仓库设为 Public (`https://github.com/x549d/context-notes-native`) | **待完成（Phase 8E）** | 当前仍为 Private，等待 Phase 8A/8B 维护者确认后转为 Public |
-| MIT 许可证生效（根 `LICENSE` 与 `plugin.json`） | **待完成（Phase 8C）** | 等待维护者确认版权持有人署名后切换为 MIT |
-| 公开版 `README.md` 与文档完整 | **待完成（Phase 8C）** | 随 MIT 切换同步更新为公开开源版本 |
-| 公开可下载的 GitHub Release（`0.3.0` EXE/ZIP/SHA256SUMS） | **待完成（Phase 8D/8E + 维护者确认创建 Release）** | 须在公开仓库并创建正式 Release 后再提交申请 |
-| 维护者身份与 OpenAI 账号字段 | **待维护者补充** | 见第 5 节缺失个人信息清单 |
+| GitHub 个人资料公开 (`x549d`) | **已完成** | 经公开 GitHub API 核实可见 (`login=x549d`) |
+| GitHub 仓库设为 Public (`https://github.com/x549d/context-notes-native`) | **已完成** | 经未登录 GitHub API 核实 `visibility=public`、`private=false` |
+| MIT 许可证生效（根 `LICENSE` 与 `plugin.json`） | **已完成** | 根 `LICENSE`（`Copyright (c) 2026 x549d`）已生效，GitHub API 识别 `license=MIT` |
+| 公开版 `README.md` 与文档完整 | **已完成** | 包含完整安装、使用、隐私、安全、贡献与第三方许可文档 |
+| 公开可下载的 GitHub Release（`v0.3.0` EXE/ZIP/SHA256SUMS） | **已完成** | 已正式发布 <https://github.com/x549d/context-notes-native/releases/tag/v0.3.0>，3 个资产均已验证可公开下载 |
+| 维护者身份与 OpenAI 账号字段 | **待维护者本人填写** | 见第 5 节缺失个人信息清单（不猜测、不代填、不擅自提交） |
 
 ---
 
@@ -113,8 +113,8 @@ Integrates strictly via official Codex App Server stdio JSON-RPC and SessionStar
 
 在打开 <https://openai.com/form/codex-for-oss/> 提交前，请逐项确认：
 
-- [ ] `https://github.com/x549d/context-notes-native` 已为 **Public**，未登录浏览器可正常打开。
-- [ ] 根目录 `LICENSE` 已更新为正式 **MIT** 许可证且 GitHub 右侧栏已识别为 `MIT license`。
-- [ ] 已发布公开 **GitHub Release `v0.3.0`**，附带可下载的 `ContextNotesNative-0.3.0-setup.exe`、`ContextNotesNative-0.3.0-portable.zip` 与 `SHA256SUMS`。
+- [x] `https://github.com/x549d/context-notes-native` 已为 **Public**，未登录浏览器/API 核实可公开访问。
+- [x] 根目录 `LICENSE` 已更新为正式 **MIT** 许可证且 GitHub 已识别为 `MIT`。
+- [x] 已发布公开 **GitHub Release `v0.3.0`**（<https://github.com/x549d/context-notes-native/releases/tag/v0.3.0>），附带可下载的 `ContextNotesNative-0.3.0-setup.exe`、`ContextNotesNative-0.3.0-portable.zip` 与 `SHA256SUMS`。
 - [ ] 表单中已勾选 **API credits**，且确认 **未勾选 Codex Security**。
 - [ ] 已由维护者本人核实上述英文文本无夸大或虚构数据，并填入真实姓名、ChatGPT 邮箱与 OpenAI Organization ID 后手动点击提交。
