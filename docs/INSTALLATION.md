@@ -1,12 +1,20 @@
 # 安装、更新和卸载
 
+Phase 6 更新：便携 ZIP 内的管理器最终以 PowerShell 7 和 Windows PowerShell 5.1 的 19 项隔离断言验证；包含旧库向新目标导入保护、升级回滚与默认历史保留。当前标准 EXE 仍可能在创建 Temp 目录（Error 5）或 HKCU 卸载注册预检处被拒绝，尚未完成标准安装和干净 Windows 验收。没有要求提升管理员或修改系统权限；预览包不等于正式稳定版。
+
+当前历史库为 `%USERPROFILE%\.context-notes-native\data\history.db`。旧版的 AppData 路径可能在打包客户端和桌面子进程中指向不同视图，不能直接认定其中一份空库代表全部历史。先分别导出一致性备份并确认记录、消息、Thread 和账号；有不同数据时先保全两份，请维护者核对合并，不要用空备份覆盖另一份。
+
+新目标尚不存在时，可在便携载荷目录运行 `scripts\Manage-Installation.ps1 -Action Install -LegacyHistoryBackup <已核验的备份路径>`。它只向新目的库导入，不覆盖旧源库或已有目的库。检测到旧库但未提供备份时，会明确停止，避免创建空替代库。本轮机器已迁入共享目录，旧库和旧备份仍保留。卸载删除选项仅针对当前活动数据目录，旧副本仍需单独管理。
+
 5G～5J 更新：安装器仍为 `PrivilegesRequired=lowest`，不要求管理员提升；在写程序文件前检查本进程对 HKCU 自有卸载项的写入能力。拒绝时退出而不部署，不修改 ACL。Start Menu 快捷方式现在为默认关闭的可选任务；也可通过 Ctrl+Alt+H 或程序的 `--show-history` 入口访问历史。
 
 安装器在本次受控执行环境仍被拒绝，不能把安装脚本的隔离验证视为标准 EXE 已通过。干净 Windows 环境也未就绪。可使用经哈希审计的便携载荷，在正常交互用户桌面运行其中 `scripts\Manage-Installation.ps1 -Action Install`；该流程不创建 Windows 应用列表卸载项。便携卸载用同一脚本 `-Action Uninstall`，默认保留数据，之后再移除程序目录。
 
-升级备份位于 `%LOCALAPPDATA%\ContextNotesNative\backups\install-recovery-*`，通过 SQLite Backup API 保留 WAL 和旧 schema。回滚本身失败时保留目录，不会继续删除最后的恢复副本；确认恢复前不要清理。历史数据不进入安装包。
+升级备份位于 `%USERPROFILE%\.context-notes-native\backups\install-recovery-*`，通过 SQLite Backup API 保留 WAL 和旧 schema。回滚本身失败时保留目录，不会继续删除最后的恢复副本；确认恢复前不要清理。历史数据不进入安装包。
 
 发布目录包含 `SHA256SUMS`，便携包内包含逐文件 `SHA256.json` 和 `release.json`。打包只包含用户说明、插件和运行文件，不包含数据库、日志、源码、测试或本机验收材料。签名流程见 [SIGNING-PLAN.md](SIGNING-PLAN.md)，当前仍未签名。
+
+完整退出本工具时先停止 Watcher，再停止 Companion；安装管理器的卸载流程按此顺序执行。仅停止 Companion 时，处于前台的 Codex 会触发 Watcher 自动恢复它。正常关闭 Codex 后，Companion 会在客户端持续不存在的宽限期结束后退出，Watcher 等待下次启动。
 
 目标为 Windows 10/11 x64，要求 .NET 10 Windows Desktop Runtime x64 和已安装的 Codex Desktop。安装器按当前用户安装，无需管理员权限。0.3.0 为本机验证预览版；未签名安装器不应作为正式公开发布版本。
 

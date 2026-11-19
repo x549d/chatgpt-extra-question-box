@@ -25,7 +25,7 @@ $zip = [IO.Compression.ZipFile]::OpenRead($portable)
 try {
     $entries = @($zip.Entries | Where-Object { $_.Name })
     $names = @($entries | ForEach-Object { $_.FullName.Replace('\','/') })
-    $required = @('README.md','LICENSE','PRIVACY.md','CHANGELOG.md','release.json','SHA256.json','scripts/Manage-Installation.ps1','codex-plugin/.agents/plugins/marketplace.json','codex-plugin/plugins/context-notes/.codex-plugin/plugin.json')
+    $required = @('README.md','LICENSE','PRIVACY.md','CHANGELOG.md','release.json','SHA256.json','scripts/Manage-Installation.ps1','docs/THIRD-PARTY-NOTICES.md','codex-plugin/.agents/plugins/marketplace.json','codex-plugin/plugins/context-notes/.codex-plugin/plugin.json')
     Require (@($required | Where-Object { $_ -notin $names }).Count -eq 0) 'portable contains registration and user documents'
     Require (@($names | Where-Object { $_ -match '(^/|^[A-Za-z]:|(^|/)\.\.(/|$))' }).Count -eq 0) 'archive paths stay within extraction root'
     Require (@($names | Where-Object { $_ -match '(?i)(\.(db|sqlite|log|pdb|cs|xaml|trx)(-|\.|$)|(^|/)(obj|src|tests|TestResults)/|PHASE-[0-9]|PROJECT-SPEC|auth\.json|config\.toml)' }).Count -eq 0) 'no user history credentials or development files'
@@ -39,9 +39,20 @@ try {
         if ($hash -ne $file.sha256) { $validPayload=$false }
     }
     Require ($validPayload -and $manifest.Count -eq $entries.Count - 1) 'every portable payload file matches manifest'
+    $validStage = $true
+    foreach ($file in $manifest) {
+        $full = [IO.Path]::GetFullPath((Join-Path $PayloadRoot $file.path))
+        if (!$full.StartsWith($PayloadRoot.TrimEnd('\')+'\',[StringComparison]::OrdinalIgnoreCase)) { $validStage=$false; continue }
+        if ((Get-FileHash -LiteralPath $full).Hash -ne $file.sha256) { $validStage=$false }
+    }
+    Require $validStage 'staging files also match the archive manifest'
 } finally { $zip.Dispose() }
 $signature = Get-AuthenticodeSignature -LiteralPath $setup
 Require ($signature.Status -eq 'NotSigned') 'unsigned preview is explicitly identified'
+$runtimeSignatures = @('SelectionProbe.exe','SelectionProbe.dll') | ForEach-Object { Get-AuthenticodeSignature -LiteralPath (Join-Path $PayloadRoot ('codex-plugin\plugins\context-notes\bin\'+$_)) }
+Require (@($runtimeSignatures | Where-Object {$_.Status -ne 'NotSigned'}).Count -eq 0) 'runtime unsigned status is explicitly identified'
 $release = Get-Content -LiteralPath (Join-Path $PayloadRoot 'release.json') -Raw | ConvertFrom-Json
 Require ($release.version -eq $version -and $release.channel -eq 'preview' -and !$release.source_dirty -and !$release.formal_release_ready -and $release.source_commit -match '^[0-9a-f]{40}$') 'clean preview provenance and release gate recorded'
+$revision = (& git -c "safe.directory=$($repo.Replace('\','/'))" -C $repo rev-parse --verify ($release.source_commit+'^{commit}') 2>$null | Out-String).Trim()
+Require ($LASTEXITCODE -eq 0 -and $revision -eq $release.source_commit) 'recorded source commit exists in repository'
 Write-Output "PASS release_checks=$checks formal_release_ready=false signature=NotSigned"

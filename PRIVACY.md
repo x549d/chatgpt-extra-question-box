@@ -14,9 +14,12 @@ credentials. It uses the account already available to the official server.
 
 Quotes, questions, answers, drafts, model choice, account fingerprint, thread
 IDs and window state are stored in the current Windows user's local
-`%LOCALAPPDATA%\ContextNotesNative\data` SQLite database. The database and its
+`%USERPROFILE%\.context-notes-native\data` SQLite database. The database and its
 backups contain conversation content and are not encrypted by this app.
 Windows user-profile permissions and any configured device encryption apply.
+Legacy AppData and packaged LocalCache databases are retained separately after
+an explicit migration; they are not silently deleted or overwritten. Different
+views must be verified before migration, and conflicting records require review.
 Ordinary diagnostic logs contain operational metadata, not full conversation
 text. This project implements no separate analytics or history upload service.
 

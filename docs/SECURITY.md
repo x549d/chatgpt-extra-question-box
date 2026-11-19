@@ -1,5 +1,7 @@
 # 安全与数据处理
 
+Phase 6 审计补充：安装 CLI 的 stderr 不再混入 JSON stdout，真实退出码仍必须成功；隔离安装器使用独立测试 AppId，避免覆盖生产卸载项。Temp/HKCU 拒绝仍保留为安装限制，没有修改 ACL、开启管理员提升或关闭安全机制。[第三方许可清单](THIRD-PARTY-NOTICES.md) 区分生产依赖和不会打包的测试包。根 LICENSE 尚未授予新增公开分发权，PRIVACY 仍需维护者补齐身份与联系方式。
+
 5I 后升级备份和恢复使用 SQLite Backup API，源库在迁移前备份，包含已提交 WAL；回滚失败保留当前用户 backups 目录中的恢复副本。受控环境权限拒绝不通过提权或修改 ACL 绕过。发行 ZIP 仅包含运行载荷和用户文档，逐文件哈希、发布物 SHA256SUMS 与源码提交记录由独立审计脚本核对。
 
 应用通过官方 App Server stdio 协议复用官方登录状态。没有 Cookie 读取、内存 Token 提取、OAuth 绕过、配对码收集或认证凭据落库逻辑。App Server 位于空工作目录，使用 read-only sandbox、禁止审批的策略与现有工具请求拒绝逻辑；子进程由 Win32 Job Object 管理。

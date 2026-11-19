@@ -23,7 +23,7 @@ Get-ChildItem -LiteralPath (Join-Path $plugin 'bin') -Filter *.pdb | Remove-Item
 New-Item -ItemType Directory -Path (Join-Path $stage 'scripts') -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Manage-Installation.ps1') -Destination (Join-Path $stage 'scripts\Manage-Installation.ps1')
 New-Item -ItemType Directory -Path (Join-Path $stage 'docs') -Force | Out-Null
-foreach ($name in @('INSTALLATION.md','USER-GUIDE.md','TROUBLESHOOTING.md','SECURITY.md','SIGNING-PLAN.md')) {
+foreach ($name in @('INSTALLATION.md','USER-GUIDE.md','TROUBLESHOOTING.md','SECURITY.md','SIGNING-PLAN.md','THIRD-PARTY-NOTICES.md')) {
     Copy-Item -LiteralPath (Join-Path $repo ('docs\' + $name)) -Destination (Join-Path $stage 'docs')
 }
 Copy-Item -LiteralPath (Join-Path $repo 'docs\RELEASE-README.md') -Destination (Join-Path $stage 'README.md')

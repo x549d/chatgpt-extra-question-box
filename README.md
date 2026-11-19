@@ -6,17 +6,21 @@
 
 ## Phase 5 / 0.3.0 预览版
 
-新增本地 SQLite 历史、恢复原 Thread、历史搜索/归档/回收站、Markdown 与代码复制、真实模型目录和用量状态。按 **Ctrl+Alt+H** 打开历史；数据库位于 `%LOCALAPPDATA%\ContextNotesNative\data`。退出不会清空问答，恢复不会自动重发问题。
+新增本地 SQLite 历史、恢复原 Thread、历史搜索/归档/回收站、Markdown 与代码复制、真实模型目录和用量状态。按 **Ctrl+Alt+H** 打开历史；数据库位于 `%USERPROFILE%\.context-notes-native\data`。退出不会清空问答，恢复不会自动重发问题。
 
 - [使用说明](docs/USER-GUIDE.md) · [安装与更新](docs/INSTALLATION.md) · [故障排查](docs/TROUBLESHOOTING.md)
 - [实现和测试记录](docs/PHASE-5-PRODUCT.md) · [安全说明](docs/SECURITY.md) · [隐私信息草案](PRIVACY.md)
 - [最终交付与未完成项](docs/PHASE-5-ACCEPTANCE.md)：包括实际测试数量、部署状态、安装器受阻原因和桌面操作停止后的状态。
-- 本阶段保留原有 39 项测试，当前共 **88 项 xUnit**；原有自测 **80 项**；隔离安装专项 **16 项**。隔离 Codex profile 不能替代干净 Windows 环境认证。
+- 保留全部既有测试，当前共 **102 项 xUnit**；原有自测 **80 项**；隔离安装专项 **19 项**，最终包分别在 PowerShell 7 和 Windows PowerShell 5.1 验证。隔离 Codex profile 不能替代干净 Windows 环境认证。
 - 安装包由 `scripts/Build-Release.ps1` 生成到 artifacts，按当前用户安装。未签名，许可证沿用现有 manifest 的 Proprietary 状态，公开发布前需维护者确认法律文本与隐私联系信息。
 
 Phase 4 下方的 39 项统计和 ephemeral Thread 描述属于历史基线；当前恢复行为以 Phase 5 文档为准。
 
 5G～5J 已完成后台恢复、部分真实桌面验收、更新元数据显示与筛选控件对比度修正、SQLite 一致性升级备份和回滚失败保留、发布包审计。标准安装和完整工具浮窗 UI 仍有未通过/未测试项，最新状态见 [最终验收记录](docs/PHASE-5GJ-ACCEPTANCE.md)。发布产物仍为未签名 Preview，附 SHA256SUMS 与 release.json，不代表正式发布通过。
+
+Phase 6 已取得三旁注各三轮、完整客户端冷启动、原 Thread 续问的真实证据，并修正同客户端内 Companion 退出后漏恢复、安装 CLI 诊断污染 JSON 及 TESTROOT 卸载注册不隔离的问题。标准 EXE 仍受临时目录和 HKCU 写入拒绝限制，干净 Windows 与可信签名尚未通过；60 分钟观察结果和完整限制以 [Phase 6 验收报告](docs/PHASE-6-ACCEPTANCE.md) 为准。[第三方许可清单](docs/THIRD-PARTY-NOTICES.md) 不替代本项目尚待维护者确认的分发授权。
+
+长时验收还发现打包启动器与桌面子进程对同名 AppData 路径存在不同视图。现改用 `%USERPROFILE%\.context-notes-native`，在全新数据库中保全两侧记录，旧文件不覆盖。检测到旧库时不会静默创建空替代库，升级说明见 [安装与迁移](docs/INSTALLATION.md)。
 
 ## 技术路线
 
@@ -76,7 +80,7 @@ src/SelectionProbe/             .NET 10 WPF 后台进程
   Companion.cs                  常驻、单实例、交互桌面校验、--launch / --stop / --status
   Diagnostics.cs                只记录元数据的脱敏日志与桌面校验
   DesktopStartup.cs             当前用户的 Codex 前台启动监视器与热重启桥接
-tests/SelectionProbe.Tests/     xUnit 单元测试工程（39 项测试覆盖 Phase 3 与 Phase 4）
+tests/SelectionProbe.Tests/     xUnit 单元测试工程（当前 102 项，保留全部早期回归）
 codex-plugin/                   Codex 本地 marketplace 与插件（bin/ 由安装脚本生成，不入库）
 scripts/Install-Plugin.ps1      发布程序到插件与缓存并热重启后台
 scripts/Set-WindowsStartup.ps1  注册或注销当前用户的 Windows 启动补充路径
@@ -90,7 +94,7 @@ scripts/Uninstall-Plugin.ps1
 # Release 构建整个解决方案（0 警告、0 错误）
 dotnet build ChatGptContextNotesNative.sln -c Release -p:NuGetAudit=false
 
-# 运行 xUnit 单元测试（39/39 通过）
+# 运行 xUnit 单元测试（当前 102 项）
 dotnet test ChatGptContextNotesNative.sln -c Release --no-build
 
 # 运行内置自测（80/80 通过）
