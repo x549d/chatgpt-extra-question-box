@@ -13,4 +13,4 @@ if (-not $codex) {
         Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName
 }
 if ($codex) { & $codex plugin marketplace remove context-notes-native }
-Write-Output 'Context Notes helper stopped and local marketplace removed. Logs remain in %LOCALAPPDATA%\ContextNotesNative\logs.'
+Write-Output 'Context Notes helper stopped and local marketplace removed. Runtime logs remain in %USERPROFILE%\.context-notes-native\logs; legacy files are preserved.'

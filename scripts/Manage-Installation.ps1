@@ -3,13 +3,14 @@ param(
     [ValidateSet('Check','Install','Uninstall')][string]$Action = 'Check',
     [string]$PayloadRoot = (Split-Path -Parent $PSScriptRoot),
     [string]$ProfileRoot = $(if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE '.codex' }),
-    [string]$DataRoot = (Join-Path $env:LOCALAPPDATA 'ContextNotesNative\data'),
+    [string]$DataRoot = (Join-Path $env:USERPROFILE '.context-notes-native\data'),
     [string]$StartupRoot = [Environment]::GetFolderPath('Startup'),
     [string]$CodexPath,
     [switch]$SkipLaunch,
     [switch]$RemoveHistory,
     [switch]$InjectFailure,
-    [switch]$InjectRollbackFailure
+    [switch]$InjectRollbackFailure,
+    [string]$LegacyHistoryBackup
 )
 $ErrorActionPreference = 'Stop'
 $PayloadRoot = [IO.Path]::GetFullPath($PayloadRoot)
@@ -29,7 +30,18 @@ if (!$CodexPath) { throw 'Codex Desktop / CLI was not found. Install Codex Deskt
 if ([Environment]::OSVersion.Version.Major -lt 10) { throw 'Windows 10 or 11 is required.' }
 if (!(@(& dotnet --list-runtimes) -match '^Microsoft.WindowsDesktop.App 10\.')) { throw '.NET 10 Windows Desktop Runtime x64 is required.' }
 if (!(Test-Path -LiteralPath $dll)) { throw 'Published application payload is missing.' }
-$productionData = [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'ContextNotesNative\data'))
+$productionData = [IO.Path]::GetFullPath((Join-Path $env:USERPROFILE '.context-notes-native\data'))
+$databasePath = Join-Path $DataRoot 'history.db'
+if ($LegacyHistoryBackup) {
+    $LegacyHistoryBackup = [IO.Path]::GetFullPath($LegacyHistoryBackup)
+    if ($Action -ne 'Install' -or !(Test-Path -LiteralPath $LegacyHistoryBackup) -or (Test-Path -LiteralPath $databasePath)) {
+        throw 'Legacy import requires Install, a verified existing backup and a destination database that does not exist. No original database will be overwritten.'
+    }
+}
+if ($Action -eq 'Install' -and $DataRoot -eq $productionData -and !(Test-Path -LiteralPath $databasePath) -and !$LegacyHistoryBackup) {
+    $legacy = @((Join-Path $env:LOCALAPPDATA 'ContextNotesNative\data\history.db'),(Join-Path $env:USERPROFILE 'AppData\Local\Packages\OpenAI.Codex_2p2nqsd0c76g0\LocalCache\Local\ContextNotesNative\data\history.db'))
+    if (@($legacy | Where-Object { Test-Path -LiteralPath $_ }).Count) { throw 'Legacy history detected. Export and verify both desktop/package views, then pass -LegacyHistoryBackup. No files were changed.' }
+}
 if ($InjectRollbackFailure -and (!$SkipLaunch -or $DataRoot -eq $productionData)) { throw 'Rollback fault injection requires isolated test data and SkipLaunch.' }
 if ($SkipLaunch -and $DataRoot -eq $productionData -and $Action -ne 'Check') {
     [void](& dotnet $dll --status 2>&1)
@@ -107,7 +119,7 @@ try {
         }
         if (Test-Path -LiteralPath $stateFile) { Remove-Item -LiteralPath $stateFile }
         if ($RemoveHistory) {
-            $expectedData = [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'ContextNotesNative\data'))
+            $expectedData = [IO.Path]::GetFullPath((Join-Path $env:USERPROFILE '.context-notes-native\data'))
             if ($DataRoot -ne $expectedData -and !$SkipLaunch) { throw 'Refusing removal outside the current user history directory.' }
             # Delete only known application database files, never an arbitrary recursive data tree.
             if (Test-Path -LiteralPath $DataRoot) { Get-ChildItem -LiteralPath $DataRoot -File | Where-Object { $_.Name -match '^history\.db(?:-wal|-shm|\.backup\.db|\.pre-v\d+\.db)?$' } | ForEach-Object { Remove-Item -LiteralPath (Assert-Child $_.FullName $DataRoot) } }
@@ -119,7 +131,7 @@ try {
         if ([version]$installed.version -gt [version]$manifest.version) { throw 'A newer version is already installed; downgrade refused.' }
     }
     Stop-OwnedProcesses
-    $rollbackRoot = Join-Path $env:LOCALAPPDATA 'ContextNotesNative\backups'
+    $rollbackRoot = Join-Path $env:USERPROFILE '.context-notes-native\backups'
     New-Item -ItemType Directory -Path $rollbackRoot -Force | Out-Null
     $rollback = Join-Path $rollbackRoot ('install-recovery-' + [Guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $rollback -Force | Out-Null
@@ -136,6 +148,7 @@ try {
     if (Test-Path -LiteralPath $stateFile) { Copy-Item -LiteralPath $stateFile -Destination (Join-Path $rollback 'state.json') }
     $changedSource = $false
     try {
+        if ($LegacyHistoryBackup) { [void](Invoke-Helper @('--history-backup',$LegacyHistoryBackup,$database)) }
         [void](Invoke-Helper @('--history-check', (Join-Path $DataRoot 'history.db')))
         if ($previous -and $previous.root -ne $marketplace) { [void](Invoke-Codex @('plugin','marketplace','remove','context-notes-native')); $changedSource = $true }
         if (!$previous -or $changedSource) { [void](Invoke-Codex @('plugin','marketplace','add',$marketplace)) }
@@ -162,7 +175,7 @@ try {
             [void](Invoke-Helper @('--watcher-status'))
             [void](Invoke-Helper @('--relaunch-companion'))
         }
-        @{version=$manifest.version;marketplace=$marketplace;cache=$cachedPlugin} | ConvertTo-Json | Set-Content -LiteralPath $stateFile -Encoding UTF8
+        @{version=$manifest.version;marketplace=$marketplace;cache=$cachedPlugin;data_root=$DataRoot} | ConvertTo-Json | Set-Content -LiteralPath $stateFile -Encoding UTF8
         $rollbackSafeToRemove = $true
         Write-Output ('PASS installation version=' + $manifest.version + ' hashes_verified=true hook_manifest_verified=true desktop_selection_requires_ui_check=true')
     } catch {

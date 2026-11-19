@@ -50,10 +50,10 @@ internal static class Diagnostics
 
     private static string ResolveLogDirectory()
     {
-        string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        if (!string.IsNullOrWhiteSpace(localAppData))
+        string profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (!string.IsNullOrWhiteSpace(profile))
         {
-            string candidate = Path.Combine(localAppData, "ContextNotesNative", "logs");
+            string candidate = Path.Combine(UserStoragePaths.RootFor(profile), "logs");
             try
             {
                 Directory.CreateDirectory(candidate);

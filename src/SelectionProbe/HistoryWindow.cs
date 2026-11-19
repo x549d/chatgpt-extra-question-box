@@ -84,7 +84,11 @@ internal sealed class HistoryWindow : Window
             notice.Text = $"当前账号：{account.DisplaySummary} · {currentScope}。每页 50 条；旧账号历史可浏览，继续追问须匹配当前账号。";
             await Reload();
         }
-        catch (Exception) { if (!closed) notice.Text = "无法读取当前账号，请检查 Codex 登录后重新打开历史。"; }
+        catch (Exception error)
+        {
+            SelectionTrace.Empty("history_initialize").Write("history_initialize_failed", false, error.GetType());
+            if (!closed) notice.Text = $"无法读取当前账号（{error.GetType().Name}），请检查 Codex 登录后重新打开历史。";
+        }
     }
     private async Task Reload()
     {
@@ -109,7 +113,11 @@ internal sealed class HistoryWindow : Window
             }
             if (history.LastFailure is { } failure) notice.Text = failure;
         }
-        catch (Exception) { if (!closed) notice.Text = "无法读取历史，原数据库已保留。"; }
+        catch (Exception error)
+        {
+            SelectionTrace.Empty("history_read").Write("history_read_failed", false, error.GetType());
+            if (!closed) notice.Text = $"无法读取历史（{error.GetType().Name}），原数据库已保留。";
+        }
     }
     private async void RestoreSelected()
     {

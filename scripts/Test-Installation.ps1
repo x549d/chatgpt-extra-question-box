@@ -20,19 +20,19 @@ function Require([bool]$Condition,[string]$Label) { if (!$Condition) { throw ('F
 Require (Test-Path -LiteralPath (Join-Path $profile 'context-notes-installation.json')) 'fresh isolated-profile installation'
 Require (Test-Path -LiteralPath (Join-Path $startup 'Context Notes Native - Codex Startup.lnk')) 'startup registration in isolated directory'
 $database = Join-Path $data 'history.db'
-function Invoke-TestDatabase([string]$Program) {
+function Invoke-TestDatabase([string]$Program, [string]$DatabaseFile = $database) {
     # Windows PowerShell 5.1 strips embedded quotes from native -c arguments.
     # Pass a real synthetic script file and check every native process result.
     $scriptFile = Join-Path $testRoot ('sqlite-probe-' + [Guid]::NewGuid().ToString('N') + '.py')
     $Program | Set-Content -LiteralPath $scriptFile -Encoding UTF8
     try {
-        $result = & python $scriptFile $database
+        $result = & python $scriptFile $DatabaseFile
         if ($LASTEXITCODE -ne 0) { throw 'Synthetic SQLite fixture failed.' }
         return $result
     } finally { Remove-Item -LiteralPath $scriptFile }
 }
 Invoke-TestDatabase 'import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute("INSERT INTO settings(key,value) VALUES(?,?)",("installation-sentinel","preserve-history")); c.commit(); c.close()' | Out-Null
-function Has-HistoryMarker { $value = Invoke-TestDatabase 'import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); print(c.execute("SELECT value FROM settings WHERE key=?",("installation-sentinel",)).fetchone()[0]); c.close()'; return $value -eq 'preserve-history' }
+function Has-HistoryMarker([string]$DatabaseFile = $database) { $value = Invoke-TestDatabase 'import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); print(c.execute("SELECT value FROM settings WHERE key=?",("installation-sentinel",)).fetchone()[0]); c.close()' $DatabaseFile; return $value -eq 'preserve-history' }
 & $manager -Action Install -PayloadRoot $PayloadRoot @common
 Require (Has-HistoryMarker) 'idempotent reinstall preserves database'
 
@@ -47,6 +47,15 @@ try {
     & $manager -Action Install -PayloadRoot $PayloadRoot @noisyCommon
     Require (Has-HistoryMarker) 'successful CLI stderr diagnostics do not corrupt JSON or history'
 } finally { $env:CONTEXT_NOTES_TEST_CODEX = $oldTestCodex }
+
+$legacyExport = Join-Path $testRoot 'legacy-export.db'
+& dotnet (Join-Path $PayloadRoot 'codex-plugin\plugins\context-notes\bin\SelectionProbe.dll') --history-backup $database $legacyExport
+if ($LASTEXITCODE -ne 0) { throw 'Legacy export fixture failed.' }
+$legacyHash = (Get-FileHash -LiteralPath $legacyExport).Hash
+$migrationCommon = @{} + $common; $migrationCommon.DataRoot = Join-Path $testRoot 'new-shared-data'
+& $manager -Action Install -PayloadRoot $PayloadRoot -LegacyHistoryBackup $legacyExport @migrationCommon
+Require (Has-HistoryMarker (Join-Path $migrationCommon.DataRoot 'history.db')) 'verified legacy backup imports into a new destination'
+Require ((Get-FileHash -LiteralPath $legacyExport).Hash -eq $legacyHash -and (Has-HistoryMarker)) 'legacy import preserves both source backup and original database'
 
 $tampered = Join-Path $testRoot 'tampered-payload'; Copy-Item -LiteralPath $PayloadRoot -Destination $tampered -Recurse
 Add-Content -LiteralPath (Join-Path $tampered 'README.md') -Value 'synthetic tamper test'

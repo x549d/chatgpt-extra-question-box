@@ -10,7 +10,7 @@ internal sealed class HistoryDatabase : IDisposable
     private nint db;
     private readonly object gate = new();
     public const int SchemaVersion = 2;
-    public static string DefaultPath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ContextNotesNative", "data", "history.db");
+    public static string DefaultPath => UserStoragePaths.HistoryPath;
     public string FilePath { get; }
 
     public HistoryDatabase(string path)

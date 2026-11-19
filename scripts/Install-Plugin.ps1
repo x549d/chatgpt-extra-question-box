@@ -102,5 +102,5 @@ if (-not $SkipMarketplace) {
 Write-Output @"
 
 Built & deployed: $bin
-Diagnostics (metadata only): $env:LOCALAPPDATA\ContextNotesNative\logs
+Diagnostics (metadata only): $env:USERPROFILE\.context-notes-native\logs
 "@

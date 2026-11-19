@@ -3,14 +3,15 @@ param(
     [ValidateRange(1,120)][int]$DurationMinutes = 60,
     [ValidateRange(5,60)][int]$IntervalSeconds = 30,
     [string]$OutputRoot,
-    [string]$BaselineDatabase
+    [string]$BaselineDatabase,
+    [string]$DatabasePath = (Join-Path $env:USERPROFILE '.context-notes-native\data\history.db')
 )
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 if (!$OutputRoot) { $OutputRoot = Join-Path $repo ('artifacts\runtime-' + (Get-Date -Format yyyyMMdd-HHmmss)) }
 $OutputRoot = [IO.Path]::GetFullPath($OutputRoot)
 New-Item -ItemType Directory -Path $OutputRoot -Force | Out-Null
-$database = Join-Path $env:LOCALAPPDATA 'ContextNotesNative\data\history.db'
+$database = [IO.Path]::GetFullPath($DatabasePath)
 if (!(Test-Path -LiteralPath $database)) { throw 'Production database missing; observer will not create it.' }
 $sampleFile = Join-Path $OutputRoot 'samples.jsonl'
 if (Test-Path -LiteralPath $sampleFile) { throw 'An observation already exists here; choose a new output directory.' }
