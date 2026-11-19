@@ -2,6 +2,8 @@
 
 当前安装器和本项目运行文件没有 Authenticode 可信签名。当前用户及本机个人证书存储中未发现可用于本项目的代码签名证书；没有生成自签名来冒充可信发布者，没有导出密钥，也没有购买服务。
 
+Phase 7 于 2026-11-19 重新只读检查 CurrentUser/My 和 LocalMachine/My：有效期内、有私钥的 Code Signing 证书为 **0**。现有 setup.exe、载荷 SelectionProbe.exe / SelectionProbe.dll 均为 **NotSigned**，签名者及 RFC 3161 时间戳均不存在。证书有效性和实际签名能力因此为 NOT AVAILABLE / NOT TESTED，不能把文件哈希当作可信签名。此项仍 BLOCKED，云 Windows 验收的 20 元预算不用于签名采购。
+
 正式签名前，需要维护者确认发布者法律身份、LICENSE 分发条款和隐私联系方式。维护者可评估受信任 CA 的代码签名证书，或 Microsoft Artifact Signing；申请涉及身份核验，资格、地区和费用由服务提供方当时规则决定，本任务未注册、购买或代为作承诺。
 
 2026-11-19 重新核对的官方成本示例：Artifact Signing Basic 为每账户每月 USD 9.99，含 5,000 次签名，超额 USD 0.005/次；Premium USD 99.99/月、100,000 次。税费、汇率及实际账单须另核。[官方价格表](https://learn.microsoft.com/en-us/azure/artifact-signing/how-to-change-sku)。这只是申请方案，不是本次采购。

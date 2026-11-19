@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.0 — Phase 7 release readiness (2026-11-19)
+
+- Validated permanent deletion against the published runtime in a new synthetic database: 23 assertions covering account isolation, cascades, injected transaction rollback, WAL snapshots/checkpoints, fresh connections, and pre/post-deletion backup restores. Production code and user history were not modified.
+- Clarified AI cloud processing through the local Codex App Server, publisher/contact placeholders, and the limits of deletion when older backups remain. Kept Proprietary terms unchanged and recorded maintainer ownership, distribution, privacy and branding decisions.
+- Corrected environment inventory: VMware exists at a custom path. A separate full clone reached the Windows lock screen, but did not complete clean-OS acceptance. Cloud Windows evaluation has a user-approved RMB 20 total cap; trial eligibility is being checked and no cloud resource has been purchased.
+- Clean Windows install/upgrade/uninstall, strict three-window simultaneous streaming, legal distribution decisions and trusted signing remain open gates. Reused Phase 6 stability and installer evidence without rerunning 30/60-minute sampling or installer suites.
+
 ## 0.3.0 — Phase 6 final closure & Release Candidate prep (2026-11-19)
 
 - Root-caused standard installer Temp/HKCU Error 5 to inherited Windows `Low Mandatory Level` SACL on sandboxed build directories; added Temp preflight, Low-IL diagnostics/warnings, `-OutputDir`, and integrity-level probes without requiring admin privileges or modifying system ACLs.

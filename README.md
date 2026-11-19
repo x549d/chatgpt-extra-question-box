@@ -26,6 +26,8 @@ Phase 6 最终收尾已完成（详见 [Phase 6 最终验收报告](docs/PHASE-6
 
 长时验收还发现打包启动器与桌面子进程对同名 AppData 路径存在不同视图。现改用 `%USERPROFILE%\.context-notes-native`，在全新数据库中保全两侧记录，旧文件不覆盖。检测到旧库时不会静默创建空替代库，升级说明见 [安装与迁移](docs/INSTALLATION.md)。
 
+Phase 7 发布准备进度见 [验收报告](docs/PHASE-7-ACCEPTANCE.md) 和 [接续检查点](docs/PHASE-7-CHECKPOINT.md)：独立合成库的永久删除专项 **23/23** 通过；技术隐私说明已明确本机 App Server 会将引用、问题和恢复上下文送入 AI 服务处理流程，旧备份也可能恢复已永久删除的记录。生产代码未改动，没有重复 Phase 6 安装器或长时采样。干净 Windows 云环境、严格三个浮窗同时请求、维护者分发授权/身份/品牌决定和可信签名仍须各自完成。
+
 ## 技术路线
 
 - .NET 10 + WPF + Windows UI Automation（UIA）+ Codex App Server（stdio JSON-RPC 2.0）。
