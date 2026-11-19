@@ -1,5 +1,50 @@
 # Phase 6C 安装、升级和隔离验收
 
+最终补充（2026-11-19，提交 `88be709`）：**已定位并修复标准 EXE 此前遇到的 Temp/HKCU 拒绝访问（Error 5）根因，并在隔离 `/TESTROOT` 下完成 29/29 项真实标准 EXE 安装、升级、回滚和卸载全流程验收。**
+
+## 最终根因定位（Temp Error 5 与 HKCU Error 5）
+
+- **真实根因**：工作区根目录 `<local-workspace>` 带有 Codex Windows Sandbox 设置的继承 SACL `Mandatory Label\Low Mandatory Level:(OI)(CI)(NW)`。直接编译输出在 `artifacts\` 下的 `ContextNotesNative-0.3.0-setup.exe` 继承了 `Mandatory Label\Low Mandatory Level:(I)(NW)`。
+- Windows 强制完整性控制（MIC）会自动将带有 `Low Mandatory Level` SACL 的可执行文件降级为**低完整性进程（`S-1-16-4096`）**运行——即使普通用户从资源管理器直接双击。低完整性进程被 Windows 内核拒绝写入任何中完整性目标：
+  1. `%LOCALAPPDATA%\Temp\is-*.tmp`（Error 5，发生在 Inno 自解压阶段、早于 `[Code]`）。
+  2. `HKCU64\Software\Microsoft\Windows\CurrentVersion\Uninstall\...`（`RegCreateKeyEx` Error 5）。
+  3. `%APPDATA%\Microsoft\Windows\Start Menu\Programs\...`（Error 5）。
+  4. `%LOCALAPPDATA%\Programs\ContextNotesNative`（Error 5）。
+- **验证证据**：将同一字节完全未改动的 `ContextNotesNative-0.3.0-setup.exe`（SHA-256 一致）复制到正常中完整性用户目录（如 `%LOCALAPPDATA%\Temp\...` 或下载目录）后，文件不再携带 `Low Mandatory Level`，**无需管理员权限、不修改 `%TEMP%` 或系统 ACL、不写入 HKLM**，标准 EXE 的 Temp 解压、HKCU64 预检、注册表写入、文件部署和卸载全部通过。
+
+## `88be709` 修复内容
+
+1. **安装脚本与回滚修正（`installer/ContextNotes.iss`）**：
+   - 修复 `ssPostInstall` 中插件管理器失败时仍返回退出码 `0` 且不回滚全新安装的缺陷：新增 `GetCustomSetupExitCode` 返回非零退出码 `1`，全新安装失败时调用 `{uninstallexe} /ROLLBACK=1` 自动清理已部署文件和 HKCU 卸载项；升级失败时保留现有安装并由管理器恢复旧版注册与数据库。
+   - 缩短 `/TESTROOT` 派生 AppId 为 16 位十六进制（`ContextNotesNative.Test.<16hex>`），消除此前 88 字符导致 Inno 截断键名与预检键名不一致的问题。
+   - 新增 Temp 目录写入预检、Low-IL 诊断提示、`IsolatedTest` 防止隔离卸载误回退到生产配置，以及仅显式传入 `/REMOVEHISTORY=1` 时生效的静默删除历史测试开关（默认始终保留历史）。
+2. **部署管理器修正（`scripts/Manage-Installation.ps1`）**：
+   - 全新安装时若 `$ProfileRoot`（`CODEX_HOME`）尚不存在则自动创建，修复 `codex plugin marketplace list` 在全新用户配置下报错的问题；卸载时若配置目录不存在则安全跳过插件 CLI。
+   - 隔离测试回滚备份目录按 `$DataRoot` 隔离，不再写入用户真实 `%USERPROFILE%\.context-notes-native\backups`。
+   - 启动 Watcher 后增加 5 秒轮询等待 `--watcher-status`，避免异步拉起竞态误触发安装回滚。
+3. **构建与验证门禁（`scripts/Build-Release.ps1`、`Test-InstallationPermissions.ps1`、`Test-StandardInstaller.ps1`、`Test-Installation.ps1`）**：
+   - `Build-Release.ps1` 新增 `-OutputDir`、Low-IL 输出告警及编译器 Low-IL 检查；`Test-InstallationPermissions.ps1` 扩充至 6 项（新增进程完整性级别与可选安装包 Low-IL 校验）；`Test-Installation.ps1` 补齐 Codex 可执行文件回退查找。
+   - 新增 `scripts/Test-StandardInstaller.ps1`（29 项真实标准 EXE 端到端测试）。
+
+## `88be709` CLEAN 产物实测结果
+
+- **权限探针（`Test-InstallationPermissions.ps1 -InstallerPath`）**：**6/6 PASS**（HKCU32、HKCU64、Programs 目录、Temp 目录、进程 Medium+ 完整性、安装包无 Low-IL；`effective_admin=False`）。
+- **标准 EXE 端到端（`Test-StandardInstaller.ps1`，中完整性目录 + 隔离 `/TESTROOT`）**：**29/29 PASS**，覆盖：
+  - 全新安装（退出码 0、Temp 预检 ok、HKCU64 预检 ok、精确测试卸载键、全新 `CODEX_HOME` 插件注册、启动快捷方式、SQLite schema 2 / `integrity_check=ok`）。
+  - 原地重装/升级（退出码 0、保留既有历史）。
+  - 全新安装注入失败回滚（退出码 `1`、清除 HKCU 卸载键、回滚程序文件和 `installation-context.ini`）。
+  - 升级注入失败回滚（退出码 `1`、恢复迁移前 schema v1 与历史数据）。
+  - v1→v2 真实 EXE 升级迁移（退出码 0、生成 `.pre-v2.db`、保留数据）。
+  - 默认标准卸载 `unins000.exe`（退出码 0、移除卸载键/插件注册/启动快捷方式、**保留本地 `history.db` 及内容**）。
+  - 显式删除历史卸载 `unins000.exe /REMOVEHISTORY=1`（退出码 0、删除本地 `history.db` 并移除卸载键）。
+- **便携 ZIP 隔离管理器（`Test-Installation.ps1`，Windows PowerShell 5.1，解压自实际便携 ZIP）**：**19/19 PASS**。
+- **Hook 诊断回归（`Test-HookDiagnostic.ps1`）**：**9/9 PASS**；PowerShell 静态解析：**11/11 脚本 0 错误**。
+- **干净 Windows OS（Windows Sandbox / 独立虚拟机 / 全新 Windows 账户）**：**NOT TESTED**。复核确认本机无 `WindowsSandbox`、`vmrun`、`VBoxManage`、`vmconnect`、`hyperv`，启用可选功能或新建系统账户需要管理员权限，未擅自提权或虚构结果。
+
+---
+
+以下保留早期诊断记录（2026-11-19 13:24 前）：
+
 后续补充（2026-11-19 13:24）：共享数据目录修正见 [存储记录](PHASE-6B-STORAGE.md)。新增显式旧库导入到新目标及源备份不变两项，当前中间载荷 `payload-8ee3308d5a454077be914022467ee9cf` 的包内管理器在 PowerShell 7 / Windows PowerShell 5.1 各 **19/19**，失败 0、跳过 0，保留全部原 16 项。它仍不等同于干净 Windows 或标准 EXE 验收。最终 CLEAN 包核验见 [最终报告](PHASE-6-ACCEPTANCE.md)。
 
 2026-11-19，接续 `f7fbe71`。不提升管理员权限，不修改 ACL、全局环境或其他用户配置。

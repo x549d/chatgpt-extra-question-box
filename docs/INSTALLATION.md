@@ -1,6 +1,6 @@
 # 安装、更新和卸载
 
-Phase 6 更新：便携 ZIP 内的管理器最终以 PowerShell 7 和 Windows PowerShell 5.1 的 19 项隔离断言验证；包含旧库向新目标导入保护、升级回滚与默认历史保留。当前标准 EXE 仍可能在创建 Temp 目录（Error 5）或 HKCU 卸载注册预检处被拒绝，尚未完成标准安装和干净 Windows 验收。没有要求提升管理员或修改系统权限；预览包不等于正式稳定版。
+Phase 6 更新（`88be709`）：已定位并修复此前标准 EXE 的 Temp / HKCU Error 5 问题（根因是沙箱工作区目录继承的 Windows `Low Mandatory Level` SACL 导致 EXE 被降级为低完整性进程），同时修复全新 `CODEX_HOME` 初始化、部署失败退出码与自动回滚、测试 AppId 截断和 Watcher 启动轮询。在正常中完整性目录与隔离 `/TESTROOT` 下，标准 EXE 已通过 **29/29** 项安装/升级/回滚/卸载端到端验证（`effective_admin=False`，无需管理员权限，不写 HKLM）；便携 ZIP 管理器通过 **19/19** 项验证。若从沙箱/低完整性构建目录本地测试安装器，请先复制到普通用户目录（如下载或桌面）再运行，或构建时使用 `-OutputDir` 指定中完整性输出目录。独立干净 Windows OS（Sandbox / VM / 全新账户）全流程仍为 `NOT TESTED`，且预览包未签名，不等于正式稳定版。
 
 当前历史库为 `%USERPROFILE%\.context-notes-native\data\history.db`。旧版的 AppData 路径可能在打包客户端和桌面子进程中指向不同视图，不能直接认定其中一份空库代表全部历史。先分别导出一致性备份并确认记录、消息、Thread 和账号；有不同数据时先保全两份，请维护者核对合并，不要用空备份覆盖另一份。
 
@@ -8,7 +8,7 @@ Phase 6 更新：便携 ZIP 内的管理器最终以 PowerShell 7 和 Windows Po
 
 5G～5J 更新：安装器仍为 `PrivilegesRequired=lowest`，不要求管理员提升；在写程序文件前检查本进程对 HKCU 自有卸载项的写入能力。拒绝时退出而不部署，不修改 ACL。Start Menu 快捷方式现在为默认关闭的可选任务；也可通过 Ctrl+Alt+H 或程序的 `--show-history` 入口访问历史。
 
-安装器在本次受控执行环境仍被拒绝，不能把安装脚本的隔离验证视为标准 EXE 已通过。干净 Windows 环境也未就绪。可使用经哈希审计的便携载荷，在正常交互用户桌面运行其中 `scripts\Manage-Installation.ps1 -Action Install`；该流程不创建 Windows 应用列表卸载项。便携卸载用同一脚本 `-Action Uninstall`，默认保留数据，之后再移除程序目录。
+标准安装器在正常中完整性用户目录中已通过普通用户隔离 `/TESTROOT` 全流程验证（29/29）；独立干净 Windows OS 环境尚未验证。如需免注册卸载项的便携方式，可使用经哈希审计的便携载荷，在正常交互用户桌面运行其中 `scripts\Manage-Installation.ps1 -Action Install`；便携卸载用同一脚本 `-Action Uninstall`，默认保留数据，之后再移除程序目录。
 
 升级备份位于 `%USERPROFILE%\.context-notes-native\backups\install-recovery-*`，通过 SQLite Backup API 保留 WAL 和旧 schema。回滚本身失败时保留目录，不会继续删除最后的恢复副本；确认恢复前不要清理。历史数据不进入安装包。
 

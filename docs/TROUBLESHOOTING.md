@@ -1,10 +1,9 @@
 # 故障排查
 
-- 安装器提示无法创建 `%TEMP%\is-*.tmp`、Error 5：失败发生在解包临时目录阶段，项目注册脚本尚未运行。检查当前 TEMP/TMP、路径可写性和安装日志，保留实际错误。一次父进程写入探针成功不代表安装器子进程有相同能力；不要把它简单改写成“需要管理员”。仅为单次进程选择可写临时目录可以区分失败阶段，不会自动解决后续 HKCU 拒绝；本轮此方式进入了 HKCU 预检并安全退出，标准安装仍未通过。
+- 安装器提示无法创建 `%TEMP%\is-*.tmp`（Error 5）或 HKCU 卸载键预检失败：最常见原因是安装器文件本身位于带有 Windows `Low Mandatory Level` SACL 的沙箱/受控构建目录（可用 `icacls <setup.exe>` 检查是否含 `Mandatory Label\Low Mandatory Level`），Windows 强制完整性控制（MIC）会将其降级为低完整性进程运行，导致被内核拒绝写入中完整性的 `%TEMP%`、HKCU 和开始菜单。**解决办法**：将 `ContextNotesNative-0.3.0-setup.exe` 复制到正常用户目录（如「下载」或「桌面」）再双击运行；**不要**修改系统 `%TEMP%` 权限、不要授予 Everyone 权限、也不要请求管理员提权。若从低完整性构建环境编译，使用中完整性 `ISCC.exe` 并通过 `-OutputDir` 输出到正常目录。
 - 只停 Companion 后又出现：这是已验证 Codex 前台下的 Watcher 恢复行为。需要完整退出或更新时，使用安装管理器，或先执行程序 `--stop-watcher` 再 `--stop`，不要反复终止随机 dotnet/codex 进程。
 - 备份完整性为 ok 但记录数量异常：先只读核对实际原库、时间、记录数量、Thread/账号和原记录差异，再创建独立的一致性副本。不要仅凭 integrity_check=ok 把空库作为可靠恢复点；也不要用异常备份覆盖原库。
-
-- HKCU 预检拒绝 / ShellExecuteW=5：安装器没有要求 HKLM 或管理员权限。父键可写并不证明当前安装器执行路径允许同样的写入；不要据此修改 ACL、关闭保护或绕过安全提示。保留安装日志，在允许执行该程序的正常桌面或独立测试环境补验；便携管理器是独立的已验证路径。
+- HKCU 预检拒绝 / ShellExecuteW=5：本软件按当前用户安装，无需 HKLM 或管理员权限。先核对安装包是否继承了 `Low Mandatory Level`（见上条）以及当前用户对自身 HKCU 卸载键的正常权限；不要修改系统 ACL 或绕过安全策略。如仍受外部策略限制，保留安装日志并在正常桌面或使用经哈希校验的便携包管理器。
 - 升级回滚也失败：错误会给出 `%USERPROFILE%\.context-notes-native\backups\install-recovery-*` 路径。保留该目录；修复原注册来源与启动条件后，用明确校验过的一致性备份恢复。新 `--history-backup <source> <destination>` 命令不迁移源 schema；指向现有目的库会替换其内容，必须先停止自有后台并保护目的库，不要对用户原库盲试。
 - 自动验收接口无法选择工具浮窗：不改变 WS_EX_TOOLWINDOW 产品行为来伪造可操作性，也不构造窗口 ID。请人工完成该部分，记录实际结果；单元测试不能替代 UI 验收。
 
