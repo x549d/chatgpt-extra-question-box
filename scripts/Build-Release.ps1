@@ -1,8 +1,8 @@
 [CmdletBinding()]
-param([string]$Compiler, [switch]$SkipTests)
+param([string]$Compiler, [switch]$SkipTests, [string]$OutputDir)
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
-$artifacts = Join-Path $repo 'artifacts'
+$artifacts = if ($OutputDir) { [IO.Path]::GetFullPath($OutputDir) } else { Join-Path $repo 'artifacts' }
 $stage = Join-Path $artifacts ('payload-' + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $stage -Force | Out-Null
 if (!$SkipTests) {
@@ -40,9 +40,18 @@ Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $portable -Force
 (Get-FileHash -LiteralPath $portable -Algorithm SHA256).Hash | Set-Content -LiteralPath ($portable + '.sha256') -Encoding ASCII
 if (!$Compiler) { foreach ($candidate in @('<local-inno-setup>\ISCC.exe',"${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe","$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe")) { if (Test-Path -LiteralPath $candidate) { $Compiler = $candidate; break } } }
 if (!$Compiler) { throw 'Inno Setup compiler missing. Install the official compiler, then pass -Compiler path\ISCC.exe.' }
-& $Compiler "/DPayloadDir=$stage" "/DProductVersion=$version" (Join-Path $repo 'installer\ContextNotes.iss')
+$compilerAcl = & icacls $Compiler 2>$null | Out-String
+$artifactsAcl = & icacls $artifacts 2>$null | Out-String
+if ($compilerAcl -match 'Low Mandatory Level' -and $artifactsAcl -notmatch 'Low Mandatory Level') {
+    throw "Compiler '$Compiler' carries a Low Mandatory Level SACL and cannot write to Medium-integrity output '$artifacts'. Pass -Compiler pointing to an ISCC.exe in a normal Medium-integrity folder."
+}
+& $Compiler "/DPayloadDir=$stage" "/DProductVersion=$version" "/O$artifacts" (Join-Path $repo 'installer\ContextNotes.iss')
 if ($LASTEXITCODE -ne 0) { throw 'Inno Setup compilation failed.' }
 $setup = Join-Path $artifacts "ContextNotesNative-$version-setup.exe"
+$icaclsOut = & icacls $setup 2>$null | Out-String
+if ($icaclsOut -match 'Low Mandatory Level') {
+    Write-Warning "Output installer '$setup' inherited a Low Mandatory Integrity Level SACL from its parent directory. Windows MIC will launch executables directly inside that folder at Low Integrity (blocking Temp/HKCU writes). Copy the EXE to a normal user directory (e.g. Downloads) or pass -OutputDir to a Medium-integrity folder before running it locally."
+}
 (Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash | Set-Content -LiteralPath ($setup + '.sha256') -Encoding ASCII
 @($setup,$portable) | ForEach-Object { (Get-FileHash -LiteralPath $_ -Algorithm SHA256).Hash + '  ' + [IO.Path]::GetFileName($_) } |
     Set-Content -LiteralPath (Join-Path $artifacts 'SHA256SUMS') -Encoding ASCII

@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param()
+param([string]$InstallerPath)
 $ErrorActionPreference = 'Stop'
 $checks = 0
 $nonce = [Guid]::NewGuid().ToString('N')
@@ -53,6 +53,16 @@ try {
     }
 }
 $checks++; Write-Output 'PASS permissions configured Temp directory write readback and owned-probe cleanup'
+$groups = & whoami /groups 2>$null | Out-String
+if ($groups -match 'S-1-16-4096') { throw 'Current process is running at Low Mandatory Integrity Level (S-1-16-4096); Temp and HKCU writes will be denied.' }
+$checks++; Write-Output 'PASS permissions current process integrity level is Medium or higher'
+if ($InstallerPath) {
+    $resolvedInstaller = [IO.Path]::GetFullPath($InstallerPath)
+    if (!(Test-Path -LiteralPath $resolvedInstaller)) { throw "Installer not found: $resolvedInstaller" }
+    $installerAcl = & icacls $resolvedInstaller 2>$null | Out-String
+    if ($installerAcl -match 'Low Mandatory Level') { throw "Installer '$resolvedInstaller' has an inherited Low Mandatory Level SACL; Windows MIC will downgrade it to Low Integrity on launch." }
+    $checks++; Write-Output 'PASS permissions installer executable has no Low Mandatory Level SACL'
+}
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 try { $principal=[Security.Principal.WindowsPrincipal]::new($identity); $admin=$principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) }
 finally { $identity.Dispose() }

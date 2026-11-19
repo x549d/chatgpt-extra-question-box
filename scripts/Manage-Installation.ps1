@@ -105,7 +105,10 @@ $previousCodexHome = $env:CODEX_HOME
 $env:CODEX_HOME = $ProfileRoot
 try {
     if ($Action -eq 'Check') { Write-Output ('PASS prerequisites version=' + $manifest.version); return }
-    $sources = (Invoke-Codex @('plugin','marketplace','list','--json') | ConvertFrom-Json).marketplaces
+    if ($Action -eq 'Install' -and !(Test-Path -LiteralPath $ProfileRoot)) {
+        New-Item -ItemType Directory -Path $ProfileRoot -Force | Out-Null
+    }
+    $sources = if (Test-Path -LiteralPath $ProfileRoot) { (Invoke-Codex @('plugin','marketplace','list','--json') | ConvertFrom-Json).marketplaces } else { @() }
     $previous = $sources | Where-Object { $_.name -eq 'context-notes-native' } | Select-Object -First 1
     if ($Action -eq 'Uninstall') {
         Stop-OwnedProcesses
@@ -131,7 +134,7 @@ try {
         if ([version]$installed.version -gt [version]$manifest.version) { throw 'A newer version is already installed; downgrade refused.' }
     }
     Stop-OwnedProcesses
-    $rollbackRoot = Join-Path $env:USERPROFILE '.context-notes-native\backups'
+    $rollbackRoot = if ($DataRoot -eq $productionData) { Join-Path $env:USERPROFILE '.context-notes-native\backups' } else { Join-Path (Split-Path -Parent $DataRoot) 'backups' }
     New-Item -ItemType Directory -Path $rollbackRoot -Force | Out-Null
     $rollback = Join-Path $rollbackRoot ('install-recovery-' + [Guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $rollback -Force | Out-Null
@@ -172,7 +175,14 @@ try {
         $binary = Join-Path $cachedPlugin 'bin\SelectionProbe.exe'; Set-Shortcut $binary
         if (!$SkipLaunch) {
             Start-Process -FilePath $binary -ArgumentList '--launch-watcher' -WindowStyle Hidden -Wait
-            [void](Invoke-Helper @('--watcher-status'))
+            $watcherReady = $false
+            $watcherDeadline = [DateTime]::UtcNow.AddSeconds(5)
+            do {
+                [void](& dotnet $dll --watcher-status 2>&1)
+                if ($LASTEXITCODE -eq 0) { $watcherReady = $true; break }
+                Start-Sleep -Milliseconds 200
+            } while ([DateTime]::UtcNow -lt $watcherDeadline)
+            if (!$watcherReady) { throw 'Context Notes command failed: --watcher-status' }
             [void](Invoke-Helper @('--relaunch-companion'))
         }
         @{version=$manifest.version;marketplace=$marketplace;cache=$cachedPlugin;data_root=$DataRoot} | ConvertTo-Json | Set-Content -LiteralPath $stateFile -Encoding UTF8

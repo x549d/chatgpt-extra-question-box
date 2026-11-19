@@ -37,7 +37,10 @@ function Has-HistoryMarker([string]$DatabaseFile = $database) { $value = Invoke-
 Require (Has-HistoryMarker) 'idempotent reinstall preserves database'
 
 # A successful CLI may write diagnostics to stderr; its stdout must remain JSON.
-$realCodex = if ($CodexPath) { $CodexPath } else { (Get-Command codex -ErrorAction Stop).Source }
+$realCodex = if ($CodexPath) { $CodexPath } else {
+    $cmd = Get-Command codex -ErrorAction SilentlyContinue
+    if ($cmd) { $cmd.Source } else { Get-ChildItem (Join-Path $env:LOCALAPPDATA 'OpenAI\Codex\bin') -Recurse -Filter codex.exe -ErrorAction Stop | Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName }
+}
 $shim = Join-Path $testRoot 'codex-with-diagnostic.cmd'
 @('@echo off','echo synthetic plugin diagnostic 1>&2','"%CONTEXT_NOTES_TEST_CODEX%" %*','exit /b %errorlevel%') | Set-Content -LiteralPath $shim -Encoding ASCII
 $oldTestCodex = $env:CONTEXT_NOTES_TEST_CODEX
