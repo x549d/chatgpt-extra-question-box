@@ -1,0 +1,120 @@
+name: Windows CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: Build, Test & Verify (Windows x64)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET 10 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Check git diff whitespace & formatting
+        shell: pwsh
+        run: |
+          git diff --check
+          if ($LASTEXITCODE -ne 0) { throw "git diff --check failed." }
+
+      - name: PowerShell syntax check
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $scripts = Get-ChildItem -Path scripts, codex-plugin -Recurse -Filter *.ps1
+          $failed = $false
+          foreach ($s in $scripts) {
+            $tokens = $null
+            $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($s.FullName, [ref]$tokens, [ref]$errors)
+            if ($errors.Count -gt 0) {
+              Write-Error "Syntax error in $($s.FullName): $($errors[0].Message)"
+              $failed = $true
+            } else {
+              Write-Output "PASS ps1 syntax: $($s.Name)"
+            }
+          }
+          if ($failed) { exit 1 }
+
+      - name: Verify production dependency & license hygiene
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          [xml]$csproj = Get-Content -LiteralPath src/SelectionProbe/SelectionProbe.csproj -Raw
+          $pkgRefs = @($csproj.SelectNodes('//PackageReference'))
+          if ($pkgRefs.Count -ne 0) {
+            throw "Expected 0 production PackageReference entries in SelectionProbe.csproj, found $($pkgRefs.Count)."
+          }
+          $csprojVersion = ($csproj.SelectSingleNode('//Version')).InnerText.Trim()
+          $plugin = Get-Content -LiteralPath codex-plugin/plugins/context-notes/.codex-plugin/plugin.json -Raw | ConvertFrom-Json
+          if ($plugin.version -ne $csprojVersion) {
+            throw "Version mismatch: csproj=$csprojVersion vs plugin.json=$($plugin.version)"
+          }
+          if ($plugin.license -ne 'MIT') {
+            throw "Expected plugin.json license=MIT, got $($plugin.license)"
+          }
+          $licenseText = Get-Content -LiteralPath LICENSE -Raw
+          if (!$licenseText.TrimStart().StartsWith('MIT License')) {
+            throw "Root LICENSE must start with 'MIT License'."
+          }
+          Write-Output "PASS hygiene: version=$csprojVersion license=MIT prod_nuget_packages=0"
+
+      - name: Build Release (x64, warnings as errors)
+        shell: pwsh
+        run: |
+          dotnet build ChatGptContextNotesNative.sln -c Release -p:Platform="Any CPU" -warnaserror
+
+      - name: Run xUnit tests
+        shell: pwsh
+        run: |
+          dotnet test ChatGptContextNotesNative.sln -c Release --no-build --verbosity normal
+
+      - name: Run built-in --self-test
+        shell: pwsh
+        run: |
+          dotnet src/SelectionProbe/bin/Release/net10.0-windows/SelectionProbe.dll --self-test
+
+      - name: Run safe installer permission preflight
+        shell: pwsh
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Test-InstallationPermissions.ps1
+
+      - name: Verify privacy-clean publish (DebugType=none) & synthetic DB deletion acceptance
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $pubDir = Join-Path $env:RUNNER_TEMP ('pub-check-' + [Guid]::NewGuid().ToString('N'))
+          $target = Join-Path (Resolve-Path .).Path ("artifacts\phase7-deletion-ci-" + [Guid]::NewGuid().ToString('N'))
+          try {
+            dotnet publish src/SelectionProbe/SelectionProbe.csproj -c Release -r win-x64 --no-self-contained -p:DebugType=none -o $pubDir
+            if ($LASTEXITCODE -ne 0) { throw "Release publish failed." }
+            $pdbs = @(Get-ChildItem -LiteralPath $pubDir -Recurse -Filter *.pdb)
+            if ($pdbs.Count -ne 0) { throw "Unexpected PDB files found in publish output: $($pdbs.Name -join ', ')" }
+            $publishedDll = Join-Path $pubDir 'SelectionProbe.dll'
+            $dllBytes = [IO.File]::ReadAllBytes($publishedDll)
+            $ascii = [Text.Encoding]::ASCII.GetString($dllBytes)
+            if ($ascii -match 'SelectionProbe\.pdb') { throw "Local PDB path found inside SelectionProbe.dll." }
+            Write-Output "PASS publish: 0 PDB files, 0 embedded SelectionProbe.pdb paths"
+            dotnet build tests/HistoryDeletion.Acceptance/HistoryDeletion.Acceptance.csproj -c Release "-p:RuntimePayloadDll=$publishedDll"
+            if ($LASTEXITCODE -ne 0) { throw "HistoryDeletion.Acceptance build failed." }
+            dotnet tests/HistoryDeletion.Acceptance/bin/Release/net10.0-windows/SelectionProbe.Tests.dll $target
+            if ($LASTEXITCODE -ne 0) { throw "HistoryDeletion.Acceptance failed." }
+          } finally {
+            if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force }
+            if (Test-Path -LiteralPath $pubDir) { Remove-Item -LiteralPath $pubDir -Recurse -Force }
+          }

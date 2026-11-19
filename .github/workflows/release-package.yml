@@ -1,0 +1,105 @@
+name: Release Package Verification (Manual)
+
+# Manual-only packaging and verification workflow.
+# Builds privacy-clean Windows setup.exe, portable.zip, and SHA256SUMS as downloadable
+# workflow artifacts, without automatically publishing a public GitHub Release.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package-and-audit:
+    name: Build & Audit Windows Release Packages
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET 10 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Install Inno Setup 6
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          if (!(Test-Path -LiteralPath "C:\Program Files (x86)\Inno Setup 6\ISCC.exe")) {
+            throw "ISCC.exe not found after installation."
+          }
+
+      - name: Version & third-party license check
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          [xml]$csproj = Get-Content -LiteralPath src/SelectionProbe/SelectionProbe.csproj -Raw
+          $version = ($csproj.SelectSingleNode('//Version')).InnerText.Trim()
+          $pkgRefs = @($csproj.SelectNodes('//PackageReference'))
+          if ($pkgRefs.Count -ne 0) {
+            throw "Unexpected production NuGet PackageReference found."
+          }
+          $plugin = Get-Content -LiteralPath codex-plugin/plugins/context-notes/.codex-plugin/plugin.json -Raw | ConvertFrom-Json
+          if ($plugin.version -ne $version -or $plugin.license -ne 'MIT') {
+            throw "Plugin manifest version/license mismatch."
+          }
+          $license = Get-Content -LiteralPath LICENSE -Raw
+          if (!$license.TrimStart().StartsWith('MIT License')) {
+            throw "Root LICENSE must be MIT License."
+          }
+          if (!(Test-Path -LiteralPath docs/THIRD-PARTY-NOTICES.md)) {
+            throw "Missing docs/THIRD-PARTY-NOTICES.md."
+          }
+          Write-Output "PASS version=$version license=MIT third_party_prod_deps=0"
+
+      - name: Build Windows EXE, portable ZIP, and SHA256SUMS
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $outDir = Join-Path $env:RUNNER_TEMP 'release-artifacts'
+          New-Item -ItemType Directory -Path $outDir -Force | Out-Null
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Build-Release.ps1 `
+            -Compiler "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
+            -OutputDir $outDir
+          $payload = (Get-ChildItem -LiteralPath $outDir -Directory -Filter 'payload-*' | Select-Object -First 1).FullName
+          "RELEASE_OUT=$outDir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "RELEASE_PAYLOAD=$payload" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Run release audit (Test-Release.ps1)
+        shell: pwsh
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Test-Release.ps1 `
+            -PayloadRoot "$env:RELEASE_PAYLOAD" `
+            -ArtifactDir "$env:RELEASE_OUT"
+
+      - name: Print release manifest & SHA256SUMS
+        shell: pwsh
+        run: |
+          Get-ChildItem -LiteralPath "$env:RELEASE_OUT" -File | Select-Object Name, Length
+          Write-Output "=== SHA256SUMS ==="
+          Get-Content -LiteralPath (Join-Path "$env:RELEASE_OUT" 'SHA256SUMS')
+
+      - name: Run Gitleaks secret scan on repository and built payload
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          choco install gitleaks -y --no-progress
+          gitleaks git . --log-opts="--all" --no-banner
+          if ($LASTEXITCODE -ne 0) { throw "Gitleaks git history scan failed." }
+          gitleaks dir "$env:RELEASE_PAYLOAD" --no-banner
+          if ($LASTEXITCODE -ne 0) { throw "Gitleaks release payload scan failed." }
+          Write-Output "PASS gitleaks: 0 leaks in git history and release payload"
+
+      - name: Upload built release artifacts (draft only, no auto-release)
+        uses: actions/upload-artifact@v4
+        with:
+          name: context-notes-native-windows-release
+          path: |
+            ${{ env.RELEASE_OUT }}/ContextNotesNative-*-setup.exe
+            ${{ env.RELEASE_OUT }}/ContextNotesNative-*-portable.zip
+            ${{ env.RELEASE_OUT }}/SHA256SUMS
+          retention-days: 14
