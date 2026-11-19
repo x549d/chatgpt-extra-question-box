@@ -1,10 +1,11 @@
 [CmdletBinding()]
-param([Parameter(Mandatory)][string]$PayloadRoot)
+param([Parameter(Mandatory)][string]$PayloadRoot, [string]$ArtifactDir)
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 $PayloadRoot = [IO.Path]::GetFullPath($PayloadRoot)
-$artifactRoot = Join-Path $repo 'artifacts'
-$version = (Get-Content -LiteralPath (Join-Path $PayloadRoot 'codex-plugin\plugins\context-notes\.codex-plugin\plugin.json') -Raw | ConvertFrom-Json).version
+$artifactRoot = if ($ArtifactDir) { [IO.Path]::GetFullPath($ArtifactDir) } else { Join-Path $repo 'artifacts' }
+$pluginManifest = Get-Content -LiteralPath (Join-Path $PayloadRoot 'codex-plugin\plugins\context-notes\.codex-plugin\plugin.json') -Raw | ConvertFrom-Json
+$version = $pluginManifest.version
 $checks = 0
 function Require([bool]$Condition, [string]$Name) { if (!$Condition) { throw ('FAIL release ' + $Name) }; $script:checks++; Write-Output ('PASS release ' + $Name) }
 $setup = Join-Path $artifactRoot "ContextNotesNative-$version-setup.exe"
@@ -51,8 +52,10 @@ $signature = Get-AuthenticodeSignature -LiteralPath $setup
 Require ($signature.Status -eq 'NotSigned') 'unsigned preview is explicitly identified'
 $runtimeSignatures = @('SelectionProbe.exe','SelectionProbe.dll') | ForEach-Object { Get-AuthenticodeSignature -LiteralPath (Join-Path $PayloadRoot ('codex-plugin\plugins\context-notes\bin\'+$_)) }
 Require (@($runtimeSignatures | Where-Object {$_.Status -ne 'NotSigned'}).Count -eq 0) 'runtime unsigned status is explicitly identified'
+$licenseText = Get-Content -LiteralPath (Join-Path $PayloadRoot 'LICENSE') -Raw
+Require ($licenseText.TrimStart().StartsWith('MIT License') -and $pluginManifest.license -eq 'MIT') 'MIT license matches root LICENSE and plugin manifest'
 $release = Get-Content -LiteralPath (Join-Path $PayloadRoot 'release.json') -Raw | ConvertFrom-Json
-Require ($release.version -eq $version -and $release.channel -eq 'preview' -and !$release.source_dirty -and !$release.formal_release_ready -and $release.source_commit -match '^[0-9a-f]{40}$') 'clean preview provenance and release gate recorded'
+Require ($release.version -eq $version -and $release.license -eq 'MIT' -and $release.channel -eq 'public-unsigned' -and !$release.source_dirty -and $release.signature -eq 'NotSigned' -and $release.source_commit -match '^[0-9a-f]{40}$') 'clean public-unsigned provenance and MIT metadata recorded'
 $revision = (& git -c "safe.directory=$($repo.Replace('\','/'))" -C $repo rev-parse --verify ($release.source_commit+'^{commit}') 2>$null | Out-String).Trim()
 Require ($LASTEXITCODE -eq 0 -and $revision -eq $release.source_commit) 'recorded source commit exists in repository'
-Write-Output "PASS release_checks=$checks formal_release_ready=false signature=NotSigned"
+Write-Output "PASS release_checks=$checks license=MIT channel=public-unsigned signature=NotSigned"

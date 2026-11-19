@@ -17,7 +17,7 @@ New-Item -ItemType Directory -Path $plugin -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $repo 'codex-plugin\plugins\context-notes\.codex-plugin') -Destination (Join-Path $plugin '.codex-plugin') -Recurse
 Copy-Item -LiteralPath (Join-Path $repo 'codex-plugin\plugins\context-notes\hooks') -Destination (Join-Path $plugin 'hooks') -Recurse
 $version = (Get-Content -LiteralPath (Join-Path $plugin '.codex-plugin\plugin.json') -Raw | ConvertFrom-Json).version
-dotnet publish (Join-Path $repo 'src\SelectionProbe\SelectionProbe.csproj') -c Release -r win-x64 --no-self-contained -o (Join-Path $plugin 'bin')
+dotnet publish (Join-Path $repo 'src\SelectionProbe\SelectionProbe.csproj') -c Release -r win-x64 --no-self-contained -p:DebugType=none -o (Join-Path $plugin 'bin')
 if ($LASTEXITCODE -ne 0) { throw 'Release publish failed.' }
 Get-ChildItem -LiteralPath (Join-Path $plugin 'bin') -Filter *.pdb | Remove-Item
 New-Item -ItemType Directory -Path (Join-Path $stage 'scripts') -Force | Out-Null
@@ -31,14 +31,14 @@ foreach ($name in @('LICENSE','PRIVACY.md','CHANGELOG.md')) { Copy-Item -Literal
 $revision = (& git -c "safe.directory=$($repo.Replace('\','/'))" -C $repo rev-parse HEAD | Out-String).Trim()
 if ($LASTEXITCODE -ne 0) { throw 'Cannot record release source revision.' }
 $dirty = ![string]::IsNullOrWhiteSpace((& git -c "safe.directory=$($repo.Replace('\','/'))" -C $repo status --porcelain | Out-String))
-@{version=$version;channel='preview';source_commit=$revision;source_dirty=$dirty;signature='NotSigned';formal_release_ready=$false} |
+@{version=$version;license='MIT';channel='public-unsigned';source_commit=$revision;source_dirty=$dirty;signature='NotSigned';clean_windows_tested=$false;formal_release_ready=$false} |
     ConvertTo-Json | Set-Content -LiteralPath (Join-Path $stage 'release.json') -Encoding UTF8
 $hashes = Get-ChildItem -LiteralPath $stage -Recurse -File | ForEach-Object { @{path=$_.FullName.Substring($stage.Length+1);sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash} }
 $hashes | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $stage 'SHA256.json') -Encoding UTF8
 $portable = Join-Path $artifacts "ContextNotesNative-$version-portable.zip"
 Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $portable -Force
 (Get-FileHash -LiteralPath $portable -Algorithm SHA256).Hash | Set-Content -LiteralPath ($portable + '.sha256') -Encoding ASCII
-if (!$Compiler) { foreach ($candidate in @('<local-inno-setup>\ISCC.exe',"${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe","$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe")) { if (Test-Path -LiteralPath $candidate) { $Compiler = $candidate; break } } }
+if (!$Compiler) { foreach ($candidate in @("${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe","$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe")) { if (Test-Path -LiteralPath $candidate) { $Compiler = $candidate; break } } }
 if (!$Compiler) { throw 'Inno Setup compiler missing. Install the official compiler, then pass -Compiler path\ISCC.exe.' }
 $compilerAcl = & icacls $Compiler 2>$null | Out-String
 $artifactsAcl = & icacls $artifacts 2>$null | Out-String
