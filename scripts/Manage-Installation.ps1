@@ -37,8 +37,15 @@ if ($SkipLaunch -and $DataRoot -eq $productionData -and $Action -ne 'Check') {
 }
 
 function Invoke-Codex([string[]]$Arguments) {
-    $result = & $CodexPath @Arguments 2>&1 | Out-String
-    if ($LASTEXITCODE -ne 0) { throw ('Codex plugin command failed: ' + ($Arguments -join ' ')) }
+    # Keep native diagnostics out of the JSON response. Windows PowerShell 5.1
+    # otherwise turns stderr into terminating NativeCommandError records.
+    $savedPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        $result = & $CodexPath @Arguments 2>$null | Out-String
+        $code = $LASTEXITCODE
+    } finally { $ErrorActionPreference = $savedPreference }
+    if ($code -ne 0) { throw ('Codex plugin command failed: ' + ($Arguments -join ' ')) }
     return $result
 }
 function Invoke-Helper([string[]]$Arguments, [int[]]$Allowed = @(0)) {

@@ -5,7 +5,8 @@
   #define ProductVersion "0.3.0"
 #endif
 [Setup]
-AppId={{72EC0AA1-761D-4894-B2B8-A1FD53C06690}
+AppId={code:ApplicationId}
+UsePreviousLanguage=no
 AppName=Context Notes Native
 AppVersion={#ProductVersion}
 AppPublisher=x549d
@@ -39,6 +40,14 @@ Type: files; Name: "{app}\installation-context.ini"
 
 [Code]
 var KeepHistory: Boolean;
+function ApplicationId(Param: String): String;
+var TestRoot: String;
+begin
+  TestRoot := ExpandConstant('{param:TESTROOT|}');
+  if TestRoot = '' then Result := '{72EC0AA1-761D-4894-B2B8-A1FD53C06690}'
+  else Result := 'ContextNotesNative.Test.' + GetSHA256OfUnicodeString(Lowercase(ExpandFileName(TestRoot)));
+end;
+
 function InitializeSetup(): Boolean;
 var Index, ResultCode: Integer; FoundRuntime, Existed: Boolean; Captured: TExecOutput; Key: String;
 begin
@@ -50,9 +59,12 @@ begin
   Result := FoundRuntime;
   if not Result then SuppressibleMsgBox('Install .NET 10 Windows Desktop Runtime x64 before running this installer. Codex Desktop will also be checked before plugin deployment.', mbError, MB_OK, IDOK);
   if not Result then exit;
-  Key := 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{72EC0AA1-761D-4894-B2B8-A1FD53C06690}_is1';
+  Key := 'Software\Microsoft\Windows\CurrentVersion\Uninstall\' + ApplicationId('') + '_is1';
+  Log('Context Notes registry preflight target=HKCU64\' + Key + '\ContextNotesPreflight');
   Existed := RegKeyExists(HKCU64, Key);
   Result := RegWriteStringValue(HKCU64, Key + '\ContextNotesPreflight', 'Probe', 'metadata-only');
+  if Result then Log('Context Notes current-user registry preflight write=ok')
+  else Log('Context Notes current-user registry preflight write=failed; no machine-level registration attempted');
   RegDeleteValue(HKCU64, Key + '\ContextNotesPreflight', 'Probe');
   RegDeleteKeyIfEmpty(HKCU64, Key + '\ContextNotesPreflight');
   if not Existed then RegDeleteKeyIfEmpty(HKCU64, Key);
