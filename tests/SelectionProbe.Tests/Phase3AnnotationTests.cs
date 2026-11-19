@@ -335,10 +335,13 @@ public sealed class Phase3AnnotationTests
     public void Phase3E_ForegroundAndScrollLifecycle_HideAndRestoreWithoutDuplicateWindows()
     {
         using var host = new OverlayHost();
-        var anchor = new ScreenRectangle(840, 420, 200, 28);
+        // Keep test geometry inside 800x600 so headless CI runners (e.g. 1024x768) do not clip the anchor.
+        var windowBounds = new ScreenRectangle(40, 40, 720, 520);
+        var viewport = new ScreenRectangle(80, 80, 640, 440);
+        var anchor = new ScreenRectangle(220, 320, 200, 28);
         const string quote = "Scrollable selection text";
         var snapshot = SelectionSnapshot.FromSelection(
-            new OverlaySelection(TestWindow, DefaultWindowBounds, DefaultViewport, [anchor], quote),
+            new OverlaySelection(TestWindow, windowBounds, viewport, [anchor], quote),
             anchor);
 
         host.InvokeForTest(() =>
@@ -348,19 +351,19 @@ public sealed class Phase3AnnotationTests
             win.InputControl.Text = "Draft kept across focus & scroll";
 
             // 1. Selection scrolls outside viewport -> annotation hides with HiddenByViewport
-            var outOfView = new SelectionSample("selection_outside_viewport", 1, [], "chat", DefaultViewport);
-            host.UpdateAnnotationsForSampleForTest(TestWindow, DefaultWindowBounds, outOfView);
+            var outOfView = new SelectionSample("selection_outside_viewport", 1, [], "chat", viewport);
+            host.UpdateAnnotationsForSampleForTest(TestWindow, windowBounds, outOfView);
             Assert.True(win.Item.HiddenByViewport);
 
             // 2. Selection scrolls back into viewport at a new Y coordinate -> restores and updates anchor
-            var scrolledAnchor = new ScreenRectangle(840, 300, 200, 28);
+            var scrolledAnchor = new ScreenRectangle(220, 200, 200, 28);
             var backInView = new SelectionSample(
                 SelectionSample.Selected,
                 2,
                 [new SelectedRange(quote, SelectionRegion.Assistant, ["Document", "Group"], [scrolledAnchor])],
                 "chat",
-                DefaultViewport);
-            host.UpdateAnnotationsForSampleForTest(TestWindow, DefaultWindowBounds, backInView);
+                viewport);
+            host.UpdateAnnotationsForSampleForTest(TestWindow, windowBounds, backInView);
             Assert.False(win.Item.HiddenByViewport);
             Assert.Equal(scrolledAnchor, win.Item.CurrentAnchorRect);
 
@@ -370,7 +373,7 @@ public sealed class Phase3AnnotationTests
             Assert.Equal("Draft kept across focus & scroll", win.Item.InputDraft);
 
             // 4. Codex regains foreground -> restores existing annotation without creating duplicates
-            host.UpdateAnnotationsForOwnerForTest(TestWindow, DefaultWindowBounds);
+            host.UpdateAnnotationsForOwnerForTest(TestWindow, windowBounds);
             Assert.False(win.Item.HiddenByForeground);
             Assert.Single(host.ActiveAnnotationsForTest);
         });
