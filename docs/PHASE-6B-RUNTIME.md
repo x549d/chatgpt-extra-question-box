@@ -66,3 +66,23 @@
 **冷启动、后台自动恢复、历史恢复、同 Thread AI 续问：PASS。**
 
 用户随后明确要求“先不进行60分钟采样”，故没有启动 60 分钟采样，也不将这次会话累计时长或进程运行时长冒充长时测试。30/60 分钟连续交互稳定性均保留 **NOT TESTED / 长时项暂缓**；仅有此前一分钟采样工具试运行，不能证明无内存泄漏。继续执行可独立完成的 6C/6D。
+
+---
+
+## 最终修正版 Codex Desktop 冷启动验收（2026-11-19 14:34～14:43，提交 `88be709`）
+
+本轮使用包含共享存储修正（`7e1df68`）、旧轮次通知过滤修正（`aa6ba03`）及安装器修正（`88be709`）的最终部署二进制，补齐此前缺少的**最终修正版完整冷启动**证据：
+
+- **部署文件校验**：`%USERPROFILE%\.codex\plugins\cache\context-notes-native\context-notes\0.3.0\bin` 与 `%LOCALAPPDATA%\Programs\ContextNotesNative\versions\0.3.0` 一致，`SelectionProbe.dll` SHA-256 `C0563F6959CB8EDBBFD14BDD2392EE5B60840538A8BBFDB6865F07D267B3CDFE`，`SelectionProbe.exe` SHA-256 `662CBC1E41D374D8B0E4D54F81F3FB36B4AF4D01C6239D03A713E4562CEB5C80`。
+- **冷启动前数据库备份**：SQLite Backup API 生成 `%USERPROFILE%\.context-notes-native\backups\history-before-phase6d-coldstart-20261119-143409.db`（SHA-256 `4A87E0A7BE54FD1146CFAFCB9808EDB062B1D0028FA74C61EBE74F391B752E2A`，schema 2，`integrity_check=ok`，13 旁注 / 102 消息）。
+- **冷启动前进程快照**：`artifacts\phase6d-client-before.json` 记录全部 14 个旧 Codex 进程（原根 PID `15620`，主 AppServer `3596`，启动于 `12:31:46`）。
+- **冷启动后真实比对**：
+  - 旧 14 个 Codex 进程全部退出，**重叠 PID 数 = 0**；新 Codex 根 PID **`11116`**（启动 `14:41:36`）、新主客户端 AppServer **`9668`**（启动 `14:41:38`）。
+  - 交互桌面 Watcher PID **`10716`**（Session 1，启动 `14:41:20`）于 `14:41:48.568` 检测到新 Codex PID `11116`，自动拉起 Companion PID **`29208`**（Session 1，完整性 `8192`，`desktop_startup source=windows_foreground companion=started pid=29208`）。
+  - `14:42:26.617` 实测 `SessionStart:startup` Hook 触发并被单实例安全去重（`companion=already_running`）。
+  - 项目 AppServer PID **`27300`**（父进程 `29208`，Session 1）于 `14:42:18.633` 按需启动，初始化耗时 `191 ms`。
+- **冷启动后首次真实 AI 问答与持久化**：
+  - 用户在未向主 Chat 发送消息的前提下，选中助手回答、点击「提问」、发送测试问题并完成流式回答（`annotation_turn_completed response_length=13`，9.25 秒完成，日志无错误）。
+  - 只读 SQLite 复核：`integrity_check=ok`、schema 2、**14 旁注 / 104 消息**（新增旁注 `ann-ed886f9c125a4ca4a73c9669fc47881d`，独立非空 ThreadId，账号作用域 `acct-154d33b...`，2 条已提交消息），与冷启动前备份对比 **`baseline_msg_diff=0`、`baseline_note_id_diff=0`**，未复发双 AppData 视图不一致或旧轮次通知抢占故障。
+
+**最终修正版冷启动、后台自动拉起、窗口重定位、AI 流式回答与历史持久化：PASS。**

@@ -40,3 +40,14 @@
 原生软删除确认框的 AX 按钮索引不在缓存中；改用接口正式返回的第二张对话框截图及 screenshotId 完成确认，没有伪造窗口或跨进程点击。曾检测到用户在同窗口输入，重新观察后再继续。结束时关闭历史管理窗口，清除聊天选择，保留客户端及后台运行。
 
 阶段结论：主要旁注功能获得用户实测与数据库证据，代理完成上述入口/历史项目；**6A 不作无条件全 PASS**。永久删除、实际并发重叠、窗口移动矩阵等仍未验收；不能用后续单元测试替代。
+
+---
+
+## Phase 6D 最终构建补充验收（2026-11-19 14:41～14:42，构建提交 `88be709`）
+
+在完成共享存储视图修正（`7e1df68`）、旧轮次通知过滤修正（`aa6ba03`）和安装器修正（`88be709`）后，用户在真实交互桌面 `WinSta0\Default` 对最终部署版本（`SelectionProbe.dll` SHA-256 `C0563F6959CB8EDBBFD14BDD2392EE5B60840538A8BBFDB6865F07D267B3CDFE`）补齐了以下真实交互验收：
+
+- **真实窗口移动与重定位（PASS）**：`companion.log` 记录 Codex 主窗口真实拖动产生 4 组不同窗口坐标 `window=[342,321,1779,1080]` → `[547,388,1779,1080]` → `[315,353,1779,1080]` → `[323,345,1779,1080]`，移动期间触发 `overlay_hidden_reason=window_moved`，停稳后「提问」按钮正确重定位到 `px=[1769,1078,99,45]` → `[1536,1042,99,45]` → `[1280,1012,99,45]` → `[1544,1034,99,45]`；旁注小框同时记录用户手动拖动 `reason=user_drag px=[1533,780,486,564]`。
+- **点击「提问」、自动聚焦、原文引用与流式 AI 问答（PASS）**：`annotation_entry_clicked` → `focus_acquired keyboard_focused=True` → `annotation_opened quote_exact=True` → `app_server_initialized pid=27300 latency_ms=191` → `annotation_turn_completed response_length=13`（9.25 秒完成），日志 `error_type` 全部为 `none`。
+- **多行代码选区入口说明（PARTIAL）**：用户确认在助手回答中测试了选区与窗口拖动，但本次日志记录的有效选区为单矩形（`rectangle_count=1`, `text_length=21`）；多行代码原文逐字引用与折叠渲染已在 Phase 1/3 实测及自测/xUnit 中验证，但本轮未新增 `rectangle_count > 1` 的独立 UIA 日志，保持如实记录。
+- **永久删除与严格 UI 三浮窗同时并发**：仍保持 `NOT TESTED`（不擅自永久删除用户历史；服务层真实三线程同时 `active=3` 已通过但不能替代三浮窗同时点击 UI 证据）。
