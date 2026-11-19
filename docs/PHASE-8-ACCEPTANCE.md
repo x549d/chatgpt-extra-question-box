@@ -52,7 +52,7 @@
 - **Phase 8B 初始全量扫描**：全部 55 个提交（536 个历史 Blob）、105 个 HEAD 文件及 Phase 7 交付包中，API Key / Token / JWT / Cookie / 私钥 / SQLite 数据库 / 用户聊天历史 / 代理配置 / 日志均为 **0 命中**。
 - **元数据处置（经维护者明确确认）**：
   - 保留现有 Git 历史不改写、不强制推送；
-  - 已将 HEAD 5 份历史文档中的本机用户路径脱敏为 `%USERPROFILE%\`（验证当前 HEAD 跟踪文件 中本机 Windows 用户名命中数为 **0**）；
+  - 已将 HEAD 5 份历史文档中的本机用户路径脱敏为 `%USERPROFILE%\`（验证当前 HEAD 跟踪文件中本机 Windows 用户名命中数为 **0**）；
   - 已从 `scripts/Build-Release.ps1` 移除开发者私有 Inno Setup 路径硬编码；
   - 已在 `dotnet publish` 增加 `-p:DebugType=none`，验证 MIT 0.3.0 `SelectionProbe.dll` 内 `<local-workspace>`、`.pdb` 与本机用户名均为 **0 命中**。
 - **Phase 8E 公开前终检复扫**：
