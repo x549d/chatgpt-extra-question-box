@@ -8,7 +8,7 @@
 - 新提交：`6cd8b0f`（隔离删除验收工程与结果）、`b4142ce`（技术隐私和维护者决定）、`ff63d31`（独立环境与云许可边界）、`f23b2e5`（真实浮窗证据）、`2c0e60e`（发布材料与阶段报告）、`5869538`（随包安全文档链接修正），以及包含本报告最终审计结果的提交；完整列表见 `git log 341dd6e..HEAD --oneline`。
 - 最终 HEAD 为包含本报告最终审计结果的提交，可用 `git log -1 --format=%H -- docs/PHASE-7-ACCEPTANCE.md` 精确取得；避免在提交自身内嵌无法自洽的自身哈希。最终交付回复另记录实际 HEAD。
 - 未修改 src、installer、scripts 或 codex-plugin；仅新增使用已发布实现的独立合成库验收项目及文档。没有新增依赖，没有改动 OAuth、UIA、数据模型或生产部署。
-- 没有 push、Tag 或 GitHub Release。最终 diff/status 和新发布物核对结果在本报告末尾记录。
+- 用户后续明确选择仅 GitHub 交付，并批准新建私有仓库 `x549d/context-notes-native`；该私有仓库已创建。最终提交可推送至此指定仓库，远端 SHA 与 CLEAN 状态在交付前核对；这不包含公开仓库、Tag 或 GitHub Release 授权。
 
 ## B. 干净 Windows 测试
 
@@ -18,9 +18,9 @@
 
 ## C. 多旁注并发
 
-**NOT TESTED（严格三浮窗并发）**。本轮恢复两个合成浮窗，引用和既有回答可见；控制接口不能可靠选择浮窗输入框，操作会激活历史根窗口，未发送请求。同时 AI 请求数为 **0**。因此串流、焦点冲突、独立关闭和移动重定位在并发条件下均无完成结论；有限恢复操作未观察到崩溃。Phase 6 的三个独立 Thread、多轮、服务层并发和冷启动通过结果不用于替代此项。
+**PASS（用户实际操作 + 日志/数据库核对 + 代理重启恢复）**。用户在三个新浮窗发送 Phase7-A/B/C 50 行问题，操作了并发流式、输入/焦点、关闭一个及移动主窗口，回复“成功”。日志核实三条新请求在约 1.02 秒内启动，各自不同 AnnotationId / ThreadId、同一账号作用域，执行重叠 **14.490 秒**；回答各 50 行、分别 committed=1、GenerationState=Completed，内容哈希不同。无串流、焦点冲突及独立关闭/移动异常的 UI 结论来自用户反馈，不伪称代理自动控制了浮窗输入。
 
-2026-11-19 16:51 只读生产库：schema 2、**16 旁注 / 104 消息**、integrity_check=ok、foreign_key_check 错误 0。相对原始 6/26 和冷启动前 13/102 两个备份，消息逐字段及旁注身份均无缺失/改变。没有对生产库执行永久删除、覆盖或迁移。
+新问题正常新增 3 旁注 / 6 消息，生产库为 schema 2、**19 / 110**。在线备份后正常停止旧 Companion 29208，原 Watcher 10716 拉起新 Companion 27176，旧 App Server 27300 随旧 Companion 清理。重启后全部消息和旁注身份与备份比较差异 **0**，integrity_check=ok、外键错误 0；代理实际从历史界面逐一打开 A/B/C，引用和回答均可恢复，未重发请求。WindowPosition 有效；CurrentAnchorRect 由当前宿主重建而非持久化旧值。此前原始 6/26 与冷启动前 13/102 的比较亦为 0 差异，没有永久删除、覆盖或迁移生产库。
 
 ## D. 永久删除隔离专项
 
@@ -34,6 +34,8 @@ LICENSE 维持 **Proprietary**，未擅自授予分发权或声明代码权属�
 
 发布者法律名称和隐私联系字段仍为明确占位。代码权属/版权年份、私有或公众分发许可文本、公开产品名/品牌边界均待维护者批准。技术说明已完成，法律与公开发布身份决定 **BLOCKED**。
 
+用户回复“仅发布到github”，随后明确选择新建 **私有** `x549d/context-notes-native`。这是本项目源码向其指定私有仓库同步的授权，不将其解释为公众许可、签名采购或法律身份声明。LICENSE 继续不变，不因该授权阻止已明确允许的私有源码推送。
+
 ## F. 数字签名
 
 重新检查 CurrentUser/My 与 LocalMachine/My，有效期内、有私钥的 Code Signing 证书 **0**。现有 setup.exe、SelectionProbe.exe、SelectionProbe.dll 均 **NotSigned**，没有签名者或 RFC 3161 时间戳；实际可信签名能力 NOT AVAILABLE / NOT TESTED。
@@ -44,9 +46,10 @@ LICENSE 维持 **Proprietary**，未擅自授予分发权或声明代码权属�
 
 | 目标 | 结果 | 尚需完成 |
 | --- | --- | --- |
-| 当前用户本机内部使用 | PASS（沿用 Phase 6 已验证范围） | 严格三浮窗 UI 并发未包含在此判定中 |
+| 当前用户本机内部使用 | PASS（Phase 6 + 本轮 UI/删除专项） | 不等同干净 OS 验收 |
+| 指定 GitHub 私有源码仓库 | 已授权，创建完成 | 最终提交推送并核对远端 SHA；交付回复记录实际结果 |
 | 私有预览分发 | BLOCKED | 维护者权属/分发许可及发布者信息 |
-| 公开预览分发 | BLOCKED | 独立 Windows 全流程、严格 UI 并发、维护者许可/隐私/品牌决定 |
+| 公开预览分发 | BLOCKED | 独立 Windows 全流程、维护者许可/隐私/品牌决定 |
 | 正式稳定版 | BLOCKED | 上述项目及可信签名、签名后必要回归 |
 
 Phase 6 已通过的 106 xUnit、80 自测、29 安装器、19 便携管理、12 发布审计、9 Hook、6 权限探针和 30.005 分钟/61 样本稳定性证据继续有效，属于既有结果，**本轮未重跑**。60 分钟保持 OPTIONAL / NOT REQUIRED / NOT RUN。
@@ -64,4 +67,4 @@ Phase 6 已通过的 106 xUnit、80 自测、29 安装器、19 便携管理、12
 - 最终载荷脱敏 gitleaks 扫描 **0 泄露**；各阶段提交前差异扫描均为 0。原 Phase 6 EXE/ZIP/SHA 已保留在 `artifacts\phase6-preserved-before-phase7-20261119`，旧 payload 及稳定性证据未覆盖。
 - 使用已有官方 Inno 6.7.4 编译器的相同哈希副本，未安装新依赖；未启动新安装器、未部署新运行库或重启生产后台。构建日志：`<local-temp>\context-notes-phase6-results\phase7-release-final-build.txt`。
 
-最终保存门禁为 diff --check 通过、提交完成后 status --short 为空（CLEAN）；交付回复记录实际 HEAD。新的打包与审计不改变上文的独立 OS、UI 并发、法律身份和签名阻断结论。严格 UI 操作与维护者决定已合并请求，尚未收到本轮结果，保持待确认而不推定通过。
+最终保存门禁为 diff --check 通过、提交完成后 status --short 为空（CLEAN）；交付回复记录实际 HEAD 及指定私有仓库的远端同步结果。用户已补齐严格 UI 并发操作并授权私有源码同步；独立 OS、公众法律身份和签名阻断保持，云许可证按其明确选择保留待确认。
