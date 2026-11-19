@@ -5,7 +5,7 @@
 ## A. Git 与变更范围
 
 - 初始 HEAD `341dd6e`，分支 main，初始工作区 CLEAN，无远端。
-- 新提交：`6cd8b0f`（隔离删除验收工程与结果）、`b4142ce`（技术隐私和维护者决定）、`ff63d31`（独立环境与云许可边界）、`f23b2e5`（真实浮窗证据）。其后发布文档及审计提交见 `git log 341dd6e..HEAD --oneline`。
+- 新提交：`6cd8b0f`（隔离删除验收工程与结果）、`b4142ce`（技术隐私和维护者决定）、`ff63d31`（独立环境与云许可边界）、`f23b2e5`（真实浮窗证据）、`2c0e60e`（发布材料与阶段报告）、`5869538`（随包安全文档链接修正），以及包含本报告最终审计结果的提交；完整列表见 `git log 341dd6e..HEAD --oneline`。
 - 最终 HEAD 为包含本报告最终审计结果的提交，可用 `git log -1 --format=%H -- docs/PHASE-7-ACCEPTANCE.md` 精确取得；避免在提交自身内嵌无法自洽的自身哈希。最终交付回复另记录实际 HEAD。
 - 未修改 src、installer、scripts 或 codex-plugin；仅新增使用已发布实现的独立合成库验收项目及文档。没有新增依赖，没有改动 OAuth、UIA、数据模型或生产部署。
 - 没有 push、Tag 或 GitHub Release。最终 diff/status 和新发布物核对结果在本报告末尾记录。
@@ -53,4 +53,15 @@ Phase 6 已通过的 106 xUnit、80 自测、29 安装器、19 便携管理、12
 
 ## 本轮发布物核对
 
-技术文档已更新，计划在提交为 CLEAN 后生成新的未签名 Preview 载荷；构建来源、产物哈希、审计数量和最终工作区结果待生成后追加。旧 Phase 6 产物与证据继续保留，不把新打包等同干净 OS 或 UI 并发验收通过。
+已从 **CLEAN 提交 `586953808e57af4a663f27dd6eafa145e3abf571`** 生成最终未签名 Preview。release.json 为 source_dirty=false、channel=preview、formal_release_ready=false、signature=NotSigned。之后仅追加仓库验收报告，没有改变随包用户文档或生产实现；最终 Git HEAD 与打包源码 HEAD 因结果记录提交而不同。
+
+- 最终载荷：`artifacts\payload-4993670973654d0e8fd1485a9661d26b`。
+- 便于本机运行的正常用户交付目录：`%USERPROFILE%\Downloads\ContextNotesNative-0.3.0-Phase7-20261119`。含 EXE、ZIP、SHA256SUMS、逐物哈希、RELEASE-README.md 和 CHANGELOG.md；与仓库 artifacts 下最终文件哈希相同。直接运行工作区低完整性目录的限制仍适用，未修改 ACL。
+- EXE **2,291,479 字节**；SHA-256 `FF7F73C8CCCADF4896BACC34B220177106900C4A31BCFF6014EFB9C66F1EBE42`。
+- ZIP **247,726 字节**；SHA-256 `CD288229FDBE6254D116D561F9D8219C90BC920999564FAB87104FAD5C79F973`。
+- 新包发布审计 **12/12**；ZIP 所有载荷逐文件匹配 SHA256.json 与 staging，setup 从同一个 staging 的递归 Files 规则编译成功。本轮未运行或解包安装器来声称新环境安装通过。
+- 无测试数据库、聊天历史、日志、认证文件、源码/测试工程、obj 或 PDB；运行所需插件 bin 目录属于必要载荷。随包 Markdown 相对文档链接核对 **9 个，断链 0**。
+- 最终载荷脱敏 gitleaks 扫描 **0 泄露**；各阶段提交前差异扫描均为 0。原 Phase 6 EXE/ZIP/SHA 已保留在 `artifacts\phase6-preserved-before-phase7-20261119`，旧 payload 及稳定性证据未覆盖。
+- 使用已有官方 Inno 6.7.4 编译器的相同哈希副本，未安装新依赖；未启动新安装器、未部署新运行库或重启生产后台。构建日志：`<local-temp>\context-notes-phase6-results\phase7-release-final-build.txt`。
+
+最终保存门禁为 diff --check 通过、提交完成后 status --short 为空（CLEAN）；交付回复记录实际 HEAD。新的打包与审计不改变上文的独立 OS、UI 并发、法律身份和签名阻断结论。严格 UI 操作与维护者决定已合并请求，尚未收到本轮结果，保持待确认而不推定通过。
