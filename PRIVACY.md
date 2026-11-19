@@ -1,60 +1,64 @@
-# Privacy information — release draft
+# Privacy Policy & Data Handling
 
-This describes the implementation, not a finalized public legal policy.
-The publisher's legal identity and privacy contact must be supplied and
-approved before public distribution.
+Last updated: 2026-11-19
 
-Publisher legal name: **[MAINTAINER CONFIRMATION REQUIRED]**
+- **Publisher**: `x549d`
+- **Public Privacy Contact**: <https://github.com/x549d/context-notes-native/issues>
 
-Privacy contact: **[MAINTAINER CONFIRMATION REQUIRED]**
+This document accurately describes how **Context Notes Native** handles user selections, questions, AI responses, local history, backups, and diagnostic logs.
 
-These placeholders must be replaced only with maintainer-approved information;
-they are not contact details and this draft is not a publication approval.
+## 1. Selection Reading & AI Cloud Processing
 
-Context Notes reads the selected text and its screen bounds from the active
-Codex Chat window using Windows UI Automation. A question sends the selected
-quote, the question and, when creating an explicitly recovered context, prior
-completed local messages to the official Codex App Server. OpenAI service and
-account policies govern that communication. This application does not read
-browser cookies or process tokens, implement OAuth, or store authentication
-credentials. It uses the account already available to the official server.
+Context Notes Native reads the currently selected text and its screen coordinates from the active Windows Codex Chat window using Windows UI Automation (UIA). It does not inject into Codex processes, modify Codex files, or use the system clipboard to capture selections.
 
-The App Server is a local bridge, not a promise of offline AI processing.
-Selected quotes and questions enter the corresponding AI service workflow and
-may be sent to OpenAI's cloud service; recovered contexts can also include prior
-completed messages. Provider-side retention, training choices and account or
-workspace controls follow the applicable service policies. This app does not
-independently verify or override them and makes no zero-retention or no-training
-promise. See [OpenAI privacy information](https://openai.com/policies/privacy-policy/).
-The read-only/network restrictions on generated tool actions do not disable
-the model service's cloud processing.
+When you submit a question in an annotation window, the application sends:
 
-Quotes, questions, answers, drafts, model choice, account fingerprint, thread
-IDs and window state are stored in the current Windows user's local
-`%USERPROFILE%\.context-notes-native\data` SQLite database. The database and its
-backups contain conversation content and are not encrypted by this app.
-Windows user-profile permissions and any configured device encryption apply.
-Legacy AppData and packaged LocalCache databases are retained separately after
-an explicit migration; they are not silently deleted or overwritten. Different
-views must be verified before migration, and conflicting records require review.
-Ordinary diagnostic logs contain operational metadata, not full conversation
-text. This project implements no separate analytics or history upload service.
+- The quoted selection text
+- Your question
+- Prior completed local Q&A turns for that annotation (when starting a new thread or explicitly recovering an unavailable thread)
 
-Durable App Server threads also have their own Codex-managed local session
-storage. Deleting a Context Notes record does not delete that independent
-Codex history. Soft deletion retains the local record until the user confirms
-permanent deletion. SQLite free pages and pre-existing backup files may retain
-previous bytes. Exported backups must be managed separately by the user.
-Restoring an older backup can intentionally bring back records deleted after
-that backup was made. Ordinary database reopen and a post-deletion backup do
-not restore purged records. No automatic deletion of independent backups,
-legacy copies or provider-side history is claimed.
+to the locally installed official **Codex App Server** (`codex.exe app-server`) over stdio JSON-RPC.
 
-Uninstall keeps local history by default. An interactive uninstall offers
-explicit removal of the known database/WAL/SHM and application backup files.
-Silent uninstall always preserves history. No third-party account or Codex
-authentication files are deleted. Installation rollback backups contain local
-history when present and stay under the current user's ContextNotesNative
-backups directory. They are removed after successful installation or recovery;
-if recovery itself fails, the backup is retained and its location is reported.
-Retained recovery backups are not silently removed by uninstall.
+**Important**: The local Codex App Server is a bridge process, **not** a guarantee of offline AI processing. Submitted quotes, questions, and recovered contexts enter the corresponding AI model service workflow and are transmitted to OpenAI's cloud services according to your active Codex account. Provider-side data retention, model training settings, and workspace policies are governed by OpenAI's applicable terms and privacy policy (<https://openai.com/policies/privacy-policy/>). Context Notes Native does not independently verify or override provider-side policies and makes **no offline-AI, zero-retention, or no-training claim**. The read-only sandbox settings applied to App Server turns restrict generated tool actions and do not prevent cloud model inference.
+
+## 2. Authentication & Credentials
+
+Context Notes Native reuses the authenticated session already available to your official Codex installation. It does **not**:
+
+- Read browser cookies
+- Extract tokens from process memory
+- Implement custom OAuth flows
+- Collect passwords or store authentication credentials
+
+Account separation for local history uses an irreversible SHA-256 scope fingerprint computed in memory.
+
+## 3. Local Storage (SQLite)
+
+Quoted selections, questions, assistant answers, unsent drafts, selected model names, account scope fingerprints, thread IDs, and window placement state are stored locally under the current Windows user profile:
+
+- Database: `%USERPROFILE%\.context-notes-native\data\history.db` (plus SQLite `-wal` and `-shm` files)
+- Backups: `%USERPROFILE%\.context-notes-native\backups\`
+- Diagnostic logs: `%USERPROFILE%\.context-notes-native\logs\`
+
+The SQLite database and its backups contain your conversation content and are **not encrypted at the application layer**. Protection relies on Windows user-profile permissions and any OS/device encryption (such as BitLocker) you have enabled.
+
+Legacy AppData or packaged LocalCache databases from earlier preview builds are preserved separately after explicit migration and are never silently overwritten or deleted.
+
+## 4. Diagnostic Logs & Telemetry
+
+- **No Telemetry**: Context Notes Native implements **no telemetry, analytics, crash-upload, or remote history-sync service**. It contains no `HttpClient`, `WebRequest`, or custom remote API calls.
+- **Local Logs**: Operational logs under `%USERPROFILE%\.context-notes-native\logs\` record only metadata (window states, UIA roles, rectangle counts/coordinates, text lengths, timings, and error categories). They do not record full quoted text, user questions, or AI answers.
+
+## 5. Backups, Deletion & Data Retention
+
+- **Soft Deletion**: Deleting an annotation moves it to Trash while keeping the local record until you confirm permanent deletion.
+- **Permanent Deletion**: Confirmed permanent deletion removes the selected account's trashed annotations and cascading messages from the active SQLite database. However:
+  - SQLite free pages and previously created local backup files may still contain older bytes until overwritten or manually removed.
+  - Restoring an older backup created before deletion will restore records contained in that backup.
+  - Durable Codex App Server threads also maintain their own Codex-managed session storage; deleting a local Context Notes record does **not** automatically delete Codex's own session files or provider-side cloud history.
+- **Uninstall Retention Policy**:
+  - Standard and portable uninstall **keep local history by default**.
+  - Interactive standard uninstall explicitly asks whether to keep or remove known active database/WAL/SHM and application backup files.
+  - Silent uninstall always preserves local history unless explicitly overridden via `/REMOVEHISTORY=1`.
+  - Uninstalling never deletes Codex authentication files or other Codex plugins.
+  - Temporary upgrade rollback backups under `%USERPROFILE%\.context-notes-native\backups\install-recovery-*` are removed after successful install/recovery; if recovery fails, the backup is preserved for manual inspection and is not silently deleted by uninstall.

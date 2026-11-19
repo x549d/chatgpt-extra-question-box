@@ -1,20 +1,25 @@
-# 0.3.0 签名状态及后续步骤
+# 0.3.0 代码签名状态与后续方案
 
-当前安装器和本项目运行文件没有 Authenticode 可信签名。当前用户及本机个人证书存储中未发现可用于本项目的代码签名证书；没有生成自签名来冒充可信发布者，没有导出密钥，也没有购买服务。
+## Phase 8 状态复核（2026-11-19）
 
-Phase 7 于 2026-11-19 重新只读检查 CurrentUser/My 和 LocalMachine/My：有效期内、有私钥的 Code Signing 证书为 **0**。现有 setup.exe、载荷 SelectionProbe.exe / SelectionProbe.dll 均为 **NotSigned**，签名者及 RFC 3161 时间戳均不存在。证书有效性和实际签名能力因此为 NOT AVAILABLE / NOT TESTED，不能把文件哈希当作可信签名。此项仍 BLOCKED，云 Windows 验收的 20 元预算不用于签名采购。
+- 再次只读检查当前机器 `Cert:\CurrentUser\My` 与 `Cert:\LocalMachine\My`：有效期内、含可用私钥且具备 Code Signing EKU（`1.3.6.1.5.5.7.3.3`）的证书数量仍为 **0**。
+- 本次公开发布的 MIT 0.3.0 `ContextNotesNative-0.3.0-setup.exe` 以及载荷 `SelectionProbe.exe` / `SelectionProbe.dll` 均为 **未签名（`NotSigned`）**，无签名者信息与 RFC 3161 时间戳。
+- 本项目**不生成自签名证书冒充可信签名**，**不声称程序已签名**，并在下载页、`README.md` 与 `RELEASE-README.md` 明确告知用户：运行未签名安装器时 Windows SmartScreen 可能显示“未知发布者”警告，请先核对 `SHA256SUMS` 完整性校验值（注意：SHA-256 哈希用于防篡改校验，不等同于可信发布者签名）。
+- 在不采购付费证书的前提下，本次公开发布已开放 MIT 源码、未签名 Windows 安装包与便携 ZIP，以便社区直接核查源码或从源码自行构建。
 
-正式签名前，需要维护者确认发布者法律身份、LICENSE 分发条款和隐私联系方式。维护者可评估受信任 CA 的代码签名证书，或 Microsoft Artifact Signing；申请涉及身份核验，资格、地区和费用由服务提供方当时规则决定，本任务未注册、购买或代为作承诺。
+## 后续获取可信签名证书的规划
 
-2026-11-19 重新核对的官方成本示例：Artifact Signing Basic 为每账户每月 USD 9.99，含 5,000 次签名，超额 USD 0.005/次；Premium USD 99.99/月、100,000 次。税费、汇率及实际账单须另核。[官方价格表](https://learn.microsoft.com/en-us/azure/artifact-signing/how-to-change-sku)。这只是申请方案，不是本次采购。
+此前技术调研与官方参考（供维护者后续评估，未在本阶段采购或绑定付款方式）：
 
-公开信任身份验证有地区限制：个人开发者目前须位于美国或加拿大，组织须属于官方列明地区；当前列表不含中国大陆，不能假定当前维护者具有资格。维护者应先确认法律身份与资格，再决定创建账户、验证身份、建立 Public Trust 证书配置，或向支持其主体的受信任 CA 取得包含硬件/云密钥保护的具体报价。[官方资格与申请步骤](https://learn.microsoft.com/en-us/azure/artifact-signing/quickstart)。本轮没有提交身份资料、开通付费资源或使用付费签名。
+1. **方案选项**：可评估受信任 CA 的标准/EV 代码签名证书（含云 HSM / 硬件令牌密钥保护），或 Microsoft Artifact Signing（公开信任身份验证目前对个人开发者有地区限制，暂不含中国大陆；官方定价与资格须以申请时页面为准，参见 [Artifact Signing 文档](https://learn.microsoft.com/en-us/azure/artifact-signing/quickstart) 与 [定价页](https://learn.microsoft.com/en-us/azure/artifact-signing/how-to-change-sku)）。
+2. **获得可信证书后的标准签名与发布顺序**：
+   - 确认证书具备 Code Signing EKU、处于有效期内、私钥受保护且证书链受 Windows 默认信任，记录证书主体、指纹与有效期。
+   - 在生成载荷 `SHA256.json` 之前，使用 Windows SDK `signtool.exe` 对 `SelectionProbe.exe` 与 `SelectionProbe.dll` 执行 SHA-256 Authenticode 签名，并附加 RFC 3161 时间戳（`/fd SHA256 /tr <timestamp-url> /td SHA256`）。严禁将私钥、PFX 密码或云签名凭据写入 Git 仓库。
+   - 使用已签名载荷编译生成 `ContextNotesNative-<version>-setup.exe`，再对 `setup.exe` 执行同样的 SHA-256 签名与 RFC 3161 时间戳。
+   - 重新生成便携 ZIP、`SHA256.json` 与 `SHA256SUMS`（绝不可在签名后沿用未签名哈希）。
+   - 使用 `signtool verify /pa /all /v` 与 `Get-AuthenticodeSignature` 核验所有 EXE/DLL 状态为 `Valid` 且含有效时间戳，同步更新 `scripts/Test-Release.ps1` 的签名门禁并完成回归验证。
 
-有可用证书后：
-
-1. 明确选择有 Code Signing EKU、有效期内、含可用私钥且证书链受 Windows 信任的证书或云证书配置，记录主体、指纹和有效期。
-2. 在生成载荷哈希前，用 Windows SDK SignTool 以 SHA-256 签名 EXE/DLL，使用证书服务方提供的 RFC 3161 时间戳端点（`/tr`、`/td SHA256`）。不要把私钥、PFX 密码或服务访问凭据写入仓库。
-3. 编译并签名 setup.exe，随后重新生成便携 ZIP、SHA256.json 和 SHA256SUMS；不可签名后沿用旧哈希。
-4. 用 `signtool verify /pa /all /v` 和 `Get-AuthenticodeSignature` 核对状态、主体及时间戳，再执行全套安装与真实桌面验收。当前 Test-Release 明确验证“未签名预览”，正式签名流程必须同时更新该门禁，不能只改状态标签。
-
-参考：[Microsoft 代码签名选项](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/code-signing-options)、[Artifact Signing 身份验证流程](https://learn.microsoft.com/en-us/azure/artifact-signing/quickstart)、[Authenticode 验证](https://learn.microsoft.com/powershell/module/microsoft.powershell.security/get-authenticodesignature)。
+参考文档：
+- [Microsoft 代码签名选项](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/code-signing-options)
+- [Artifact Signing 快速入门](https://learn.microsoft.com/en-us/azure/artifact-signing/quickstart)
+- [Get-AuthenticodeSignature](https://learn.microsoft.com/powershell/module/microsoft.powershell.security/get-authenticodesignature)

@@ -1,21 +1,53 @@
-# Third-party components and license inventory
+# Third-Party Components, Licenses & Trademark Notices
 
-Reviewed 2026-11-19. This inventory does not grant a license to Context Notes Native; the root LICENSE still records its existing Proprietary status and requires publisher confirmation before public redistribution.
+Last reviewed: 2026-11-19 (Phase 8A/8C).
 
-| Component | Use | License / distribution boundary |
-| --- | --- | --- |
-| .NET 10 / WPF | Framework-dependent runtime prerequisite | .NET is MIT licensed; the runtime is installed separately, not included in this package. [Official runtime license](https://github.com/dotnet/runtime/blob/main/LICENSE.TXT) |
-| Windows UI Automation / winsqlite3.dll | Windows-provided APIs | Supplied by Windows under its applicable terms. No Windows DLL or separate SQLite binary is redistributed here. |
-| Codex Desktop / official App Server | Separate installed prerequisite and authenticated AI service | No Codex executable or credentials are included in this package. The user's applicable OpenAI service/account terms continue to apply. |
-| Inno Setup 6.7.4 | Setup compiler and generated installer | The official distribution's license permits use including commercial purposes subject to retaining its notices and identifying modifications. Its copyright/website notices have not been removed. The compiler currently reports no configured commercial license; no paid license was purchased. [Official license](https://github.com/jrsoftware/issrc/blob/main/license.txt) and [commercial program](https://jrsoftware.org/inno-setup/purchase) must be checked for the publisher's intended use. |
-| xunit 2.9.3 | Tests only | Local NuGet package metadata declares Apache-2.0. Not included in the release payload. |
-| xunit.runner.visualstudio 3.1.5 | Tests only | Local NuGet package metadata declares Apache-2.0. Not included in the release payload. |
-| Microsoft.NET.Test.Sdk 18.11.0 | Tests only | Local NuGet package metadata declares MIT. Not included in the release payload. |
+**Context Notes Native** original source code, scripts, plugin manifests, and documentation are licensed under the **MIT License** (see root [LICENSE](../LICENSE)). The MIT License applies **only** to this project's own original code and does not alter the license terms of any third-party component, runtime, tool, or prerequisite listed below.
 
-The application project has no production NuGet PackageReference, no third-party custom fonts, no bundled icon packs or images, and no redistributed Windows or Codex binaries. The release contains only its own four framework-dependent runtime files, plugin hooks/manifest, the deployment script and user documents. Development tools, test runners and their transitive packages are not shipped. If a future change redistributes a runtime, asset, or production package, update this inventory and include the required notices before distribution.
+---
 
-## Independence and Trademark Notice
+## 1. Runtime, Operating System & Packaging Components
 
-This project is an independent third-party Windows desktop utility. It is **not affiliated with, sponsored by, endorsed by, or officially certified by OpenAI**. "OpenAI", "ChatGPT", and "Codex" are trademarks of OpenAI. Before any public distribution, the maintainer must confirm the project's public naming, branding boundaries, distribution license (`LICENSE`), and publisher contact information (`PRIVACY.md`).
+| Component | Category | License / Terms | Redistributed in Package? | Handling & Notes |
+| --- | --- | --- | --- | --- |
+| .NET 10 Windows Desktop Runtime / WPF | Runtime prerequisite | [MIT License](https://github.com/dotnet/runtime/blob/main/LICENSE.TXT) | **No** (`--no-self-contained`) | Installed separately by the user; not bundled in `setup.exe` or `portable.zip`. |
+| Windows APIs (`user32.dll`, `kernel32.dll`, `advapi32.dll`, UI Automation, `winsqlite3.dll`) | OS-provided libraries | Microsoft Windows License Terms | **No** | Invoked via standard P/Invoke / Windows APIs; no Windows or SQLite DLL is redistributed. |
+| System Fonts (`Microsoft YaHei UI`, `Segoe UI`, `Cascadia Mono`, `Consolas`) | UI font names | Microsoft Windows License Terms | **No** | Referenced by font family name only; zero font files are bundled. |
+| Codex Desktop & official `codex.exe app-server` | Host application & AI service bridge | User's applicable OpenAI Terms & Privacy Policy | **No** | Installed separately by the user; no Codex binaries or credentials are included. |
+| Inno Setup 6.7.4 | Installer compiler & setup stub | [Inno Setup License](https://github.com/jrsoftware/issrc/blob/main/license.txt) (Jordan Russell / Martijn Laan) | **Installer stub only (`setup.exe`)** | Official unmodified Inno Setup 6.7.4 compiler was used to generate `ContextNotesNative-0.3.0-setup.exe`. All original Inno Setup copyright and website notices are retained intact. The Inno Setup License governs the installer stub; project code inside the payload is MIT. `portable.zip` contains no Inno Setup components. |
 
-Phase 7 review (2026-11-19): [OpenAI's current brand guidelines](https://openai.com/brand/) restrict product/model-brand naming and misleading endorsement. The historical repository title "ChatGPT Context Notes Native" needs an explicit public-branding decision; the independence disclaimer alone does not establish permission. No logo or font has been downloaded and no public rename, legal authorization or trademark permission is assumed. The maintainer can assess a neutral name such as "Context Notes Native" with a factual compatibility description, or supply applicable permission for review.
+---
+
+## 2. NuGet Packages
+
+### Production Application (`src/SelectionProbe/SelectionProbe.csproj`)
+
+- **0 production NuGet packages** (zero direct or transitive `PackageReference` entries).
+- **0 bundled third-party icon packs, images, fonts, or external DLLs**.
+
+### Test-Only Dependencies (`tests/SelectionProbe.Tests/SelectionProbe.Tests.csproj`)
+
+The following 12 packages (3 direct + 9 transitive) are used strictly for unit testing during development and are **never included** in published runtime binaries, `setup.exe`, or `portable.zip`:
+
+| Package | Version | Relationship | Declared License | Copyright / Authors |
+| --- | --- | --- | --- | --- |
+| `Microsoft.NET.Test.Sdk` | 18.11.0 | Direct (test-only) | MIT | Microsoft Corporation |
+| `Microsoft.CodeCoverage` | 18.11.0 | Transitive (test-only) | MIT | Microsoft Corporation |
+| `Microsoft.TestPlatform.ObjectModel` | 18.11.0 | Transitive (test-only) | MIT | Microsoft Corporation |
+| `Microsoft.TestPlatform.TestHost` | 18.11.0 | Transitive (test-only) | MIT | Microsoft Corporation |
+| `xunit` | 2.9.3 | Direct (test-only) | Apache-2.0 | .NET Foundation |
+| `xunit.runner.visualstudio` | 3.1.5 | Direct (test-only) | Apache-2.0 | .NET Foundation |
+| `xunit.abstractions` | 2.0.3 | Transitive (test-only) | Apache-2.0 | James Newkirk, Brad Wilson |
+| `xunit.analyzers` | 1.18.0 | Transitive (test-only) | Apache-2.0 | .NET Foundation |
+| `xunit.assert` | 2.9.3 | Transitive (test-only) | Apache-2.0 | .NET Foundation |
+| `xunit.core` | 2.9.3 | Transitive (test-only) | Apache-2.0 | .NET Foundation |
+| `xunit.extensibility.core` | 2.9.3 | Transitive (test-only) | Apache-2.0 | .NET Foundation |
+| `xunit.extensibility.execution` | 2.9.3 | Transitive (test-only) | Apache-2.0 | .NET Foundation |
+
+---
+
+## 3. Independence & Trademark Notice
+
+Context Notes Native is an independent, community open-source Windows desktop utility. It is **not affiliated with, sponsored by, endorsed by, or officially certified by OpenAI**.
+
+"OpenAI", "ChatGPT", and "Codex" are trademarks of OpenAI. References to "Codex Desktop" or "Codex Chat" are used solely to factually describe interoperability with the user's separately installed Codex Desktop application. No OpenAI logos, brand assets, or proprietary fonts are distributed in this repository or its release packages.

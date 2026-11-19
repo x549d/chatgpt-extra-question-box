@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.0 — Phase 8 public MIT open-source release (2026-11-19)
+
+- Completed Phase 8A ownership and third-party license audit (`docs/PHASE-8A-OWNERSHIP-AND-LICENSE-AUDIT.md`): verified 100% single-maintainer commit history (55/55 commits, 0 submodules, 0 LFS, 0 external source imports), 0 production NuGet dependencies, 12 test-only NuGet packages (MIT / Apache-2.0, never shipped), and Inno Setup 6.7.4 license compliance.
+- Completed Phase 8B full public repository security audit (`docs/PHASE-8B-PUBLIC-REPOSITORY-SECURITY-AUDIT.md`): verified 0 leaks across all 55 commits / 536 blobs, working tree, and release packages with `gitleaks 8.30.1` and deep regex/binary scans; confirmed production SQLite database remains intact and excluded; sanitized HEAD local user paths and eliminated embedded local PDB build paths from published DLLs (`-p:DebugType=none`).
+- Formally adopted the **MIT License** (`LICENSE`, `Copyright (c) 2026 x549d`) and aligned plugin manifest metadata (`codex-plugin/plugins/context-notes/.codex-plugin/plugin.json`).
+- Finalized public open-source documentation: updated `README.md`, `PRIVACY.md` (publisher `x549d`, public privacy contact via GitHub Issues), `docs/THIRD-PARTY-NOTICES.md`, `docs/RELEASE-README.md`, `docs/SECURITY.md`, `docs/INSTALLATION.md`, `docs/SIGNING-PLAN.md`, and added root `CONTRIBUTING.md` and `SECURITY.md`.
+- Rebuilt and re-verified MIT 0.3.0 Windows packages (`ContextNotesNative-0.3.0-setup.exe`, `ContextNotesNative-0.3.0-portable.zip`, `SHA256SUMS`); explicitly documented unsigned (`NotSigned`) SmartScreen notice and `NOT TESTED` clean Windows OS status.
+- Prepared OpenAI Codex for Open Source application draft (`docs/OPENAI-CODEX-FOR-OSS-APPLICATION.md`).
+
 ## 0.3.0 — Phase 7 release readiness (2026-11-19)
 
 - Validated permanent deletion against the published runtime in a new synthetic database: 23 assertions covering account isolation, cascades, injected transaction rollback, WAL snapshots/checkpoints, fresh connections, and pre/post-deletion backup restores. Production code and user history were not modified.
