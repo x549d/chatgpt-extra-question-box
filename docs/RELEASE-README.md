@@ -4,7 +4,7 @@ Windows 10/11 x64 的 Codex Chat 划词追问工具。需要 .NET 10 Windows Des
 
 选中助手回答并点「提问」，在原文旁输入问题；Enter 发送、Shift+Enter 换行。Ctrl+Alt+H 打开本地历史，可搜索、归档和恢复。账号和模型来自官方 App Server，不收集登录凭据。
 
-这是未签名的内部预览交付。已验证三旁注多轮及完整客户端冷启动续问，完整工具浮窗压力矩阵和干净 Windows 安装尚未通过；当前标准 EXE 受到 Temp/HKCU 写入拒绝限制。LICENSE 未获新增分发授权，PRIVACY 为实现说明草案。请不要据此声称正式发布已经通过。
+这是未签名的内部预览 / Release Candidate 交付，**不属于 OpenAI 官方认证或授权产品**。已完成三旁注多轮、最终构建完整客户端冷启动、窗口移动重定位、30 分钟连续稳定性标准验收准备，以及正常中完整性目录下的标准 EXE 隔离安装/升级/回滚/卸载（29/29）。独立干净 Windows OS（Sandbox/VM）、可信代码签名、公众分发许可（LICENSE）与发布者隐私联系主体（PRIVACY.md）尚未完成，**暂不可宣称正式稳定版公开发布通过**。
 
 - [安装/升级/卸载](docs/INSTALLATION.md)
 - [使用与恢复](docs/USER-GUIDE.md)
@@ -13,7 +13,7 @@ Windows 10/11 x64 的 Codex Chat 划词追问工具。需要 .NET 10 Windows Des
 - [后续签名方案](docs/SIGNING-PLAN.md)
 - [第三方许可清单](docs/THIRD-PARTY-NOTICES.md)
 
-普通安装器按当前用户安装，不需要本项目额外请求管理员权限。若当前执行环境阻止写入当前用户卸载项，安装器会在部署前退出；不要修改系统安全策略来绕过。
+普通安装器按当前用户安装（`PrivilegesRequired=lowest`，仅写 HKCU），无需管理员权限。若直接从沙箱或带有 `Low Mandatory Level` 的本地构建目录运行 EXE，Windows MIC 会拒绝写入 Temp/HKCU；请将安装器复制到正常用户目录（如「下载」或「桌面」）后运行，切勿修改系统 ACL 或提权。
 
 便携包须先解压到将长期保留的用户目录，然后从该目录的正常交互式 PowerShell 运行 `scripts\Manage-Installation.ps1 -Action Install`。该管理器通过官方 CLI 注册插件，创建自有启动路径；不会提供 Windows 应用列表中的卸载项。移除便携注册用同一管理器的 `-Action Uninstall`，默认保留历史；卸载注册后可自行移除该程序目录。不要删除位于 `%USERPROFILE%\.context-notes-native\data` 的用户数据库。
 

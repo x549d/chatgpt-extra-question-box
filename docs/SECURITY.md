@@ -1,6 +1,10 @@
 # 安全与数据处理
 
-Phase 6 审计补充：安装 CLI 的 stderr 不再混入 JSON stdout，真实退出码仍必须成功；隔离安装器使用独立测试 AppId，避免覆盖生产卸载项。Temp/HKCU 拒绝仍保留为安装限制，没有修改 ACL、开启管理员提升或关闭安全机制。[第三方许可清单](THIRD-PARTY-NOTICES.md) 区分生产依赖和不会打包的测试包。根 LICENSE 尚未授予新增公开分发权，PRIVACY 仍需维护者补齐身份与联系方式。
+Phase 6 最终审计补充（2026-11-19）：
+- 安装器 Temp/HKCU 拒绝访问已定位为沙箱工作区目录继承的 Windows `Low Mandatory Level` SACL，在正常中完整性目录与隔离 `/TESTROOT` 下通过 **29/29** 标准 EXE 测试（无需管理员权限、不修改 ACL、不写 HKLM）；全新安装失败自动回滚并返回非零退出码。
+- 源码静态审计确认生产工程无 `HttpClient`/`WebRequest`/`Socket`/遥测/Cookie/Token/认证文件读取逻辑，0 个生产 NuGet 包，0 个外部图标/字体资源。
+- 使用中完整性副本的 `gitleaks` 对完整 Git 历史、发布载荷与源码树执行脱敏扫描均为 0 泄露（扫描通过不替代人工边界审查）。
+- [第三方许可清单](THIRD-PARTY-NOTICES.md) 明确区分生产依赖、仅测试包及 OpenAI/Codex 非官方第三方商标边界；根 `LICENSE` 保留既有 `Proprietary` 状态，`PRIVACY.md` 发布者法律主体与联系方式仍待维护者确认；本机无可用可信代码签名证书（`BLOCKED`）。
 
 5I 后升级备份和恢复使用 SQLite Backup API，源库在迁移前备份，包含已提交 WAL；回滚失败保留当前用户 backups 目录中的恢复副本。受控环境权限拒绝不通过提权或修改 ACL 绕过。发行 ZIP 仅包含运行载荷和用户文档，逐文件哈希、发布物 SHA256SUMS 与源码提交记录由独立审计脚本核对。
 

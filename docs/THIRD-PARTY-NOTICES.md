@@ -12,4 +12,8 @@ Reviewed 2026-11-19. This inventory does not grant a license to Context Notes Na
 | xunit.runner.visualstudio 3.1.5 | Tests only | Local NuGet package metadata declares Apache-2.0. Not included in the release payload. |
 | Microsoft.NET.Test.Sdk 18.11.0 | Tests only | Local NuGet package metadata declares MIT. Not included in the release payload. |
 
-The application project has no production NuGet PackageReference. The release contains its own four framework-dependent runtime files, plugin hooks/manifest, the deployment script and user documents. Development tools, test runners and their transitive packages are not shipped. If a future change redistributes a runtime or adds a production package, update this inventory and include the required notices before distribution.
+The application project has no production NuGet PackageReference, no third-party custom fonts, no bundled icon packs or images, and no redistributed Windows or Codex binaries. The release contains only its own four framework-dependent runtime files, plugin hooks/manifest, the deployment script and user documents. Development tools, test runners and their transitive packages are not shipped. If a future change redistributes a runtime, asset, or production package, update this inventory and include the required notices before distribution.
+
+## Independence and Trademark Notice
+
+This project is an independent third-party Windows desktop utility. It is **not affiliated with, sponsored by, endorsed by, or officially certified by OpenAI**. "OpenAI", "ChatGPT", and "Codex" are trademarks of OpenAI. Before any public distribution, the maintainer must confirm the project's public naming, branding boundaries, distribution license (`LICENSE`), and publisher contact information (`PRIVACY.md`).

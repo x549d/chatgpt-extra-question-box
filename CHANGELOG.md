@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.0 — Phase 6 final closure & Release Candidate prep (2026-11-19)
+
+- Root-caused standard installer Temp/HKCU Error 5 to inherited Windows `Low Mandatory Level` SACL on sandboxed build directories; added Temp preflight, Low-IL diagnostics/warnings, `-OutputDir`, and integrity-level probes without requiring admin privileges or modifying system ACLs.
+- Fixed real installer defects: automatic creation of missing `CODEX_HOME` during fresh install, non-zero exit code (`GetCustomSetupExitCode`) and automatic fresh-install rollback (`/ROLLBACK=1`) on deployment failure, exact 16-hex isolated test AppId matching, isolated rollback backup directories, watcher readiness polling, and explicit `/REMOVEHISTORY=1` uninstall test flag (default always preserves history).
+- Verified 29/29 standard EXE end-to-end install/reinstall/v1→v2 upgrade/failure-rollback/keep-history-uninstall/remove-history-uninstall assertions (`Test-StandardInstaller.ps1`), alongside 106/106 xUnit, 80/80 self-tests, 19/19 portable installation assertions, 6/6 permission probes, 9/9 hook diagnostics, and 12/12 release audit checks.
+- Completed final-build Codex Desktop cold start (0 overlapping old PIDs, Watcher auto-launch, SessionStart hook single-instance dedup, real AI streaming Q&A persisted to SQLite with 0 baseline diff) and real window-move coordinate tracking.
+- Completed security, privacy, third-party notice, and OpenAI/Codex trademark boundary audit (0 production NuGet packages, 0 telemetry/HTTP/cookie/token reads, 0 gitleaks findings across full git history and payload).
+- 60-minute soak cancelled (`OPTIONAL / NOT REQUIRED / NOT RUN`); 30-minute continuous stability acceptance recorded in `docs/PHASE-6-ACCEPTANCE.md`.
+
+Clean Windows OS (Sandbox/VM), trusted Authenticode signing, maintainer-confirmed public distribution license (`LICENSE`), and publisher privacy contact (`PRIVACY.md`) remain formal public release gates.
+
 ## 0.3.0 — Phase 6 preview validation (2026-11-19)
 
 - Verified three new independent annotation threads and real full-client cold restart with continuation on the original thread.
