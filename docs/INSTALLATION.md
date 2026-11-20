@@ -65,3 +65,15 @@ scripts\Build-Release.ps1 -Compiler <ISCC.exe 路径> [-OutputDir <中完整性�
 ```
 
 默认会先运行单元测试，发布产物含 `ContextNotesNative-0.3.0-setup.exe`、`ContextNotesNative-0.3.0-portable.zip` 与 `SHA256SUMS`（便携包内附逐文件 `SHA256.json` 与 `release.json`）。请勿将 `artifacts/`、本地数据库或诊断日志提交至 Git。
+
+## 安装器回归与发布状态
+
+构建后分别在 Windows PowerShell 5.1 与 PowerShell 7 中执行 `scripts\Test-StandardInstaller.ps1 -SetupExe <安装器路径>`，覆盖真实 EXE 的安装、升级、回滚和卸载。在 PowerShell 7 中另执行：
+
+```powershell
+scripts\Test-InstallationShell.ps1 -PayloadRoot <payload 目录>
+```
+
+此测试通过原生中间进程把 PowerShell 7 的 `PSModulePath` 原样传给 Windows PowerShell 5.1，验证安装与卸载。直接使用 `& powershell.exe` 会自动清理模块路径，无法覆盖原有故障。部署脚本显式从当前 `$PSHOME` 加载自带模块，不修改用户或系统的模块配置。
+
+当前分发定位为**未签名公开预览版**。发布审计要求 `clean_windows_tested=false`、`formal_release_ready=false`；不要仅因开发机检查通过而修改这两个标记。独立干净 Windows 完成先决条件、安装、实际 Chat 选区旁注、多轮回答、重启历史恢复、升级与卸载验收后，才能重新评估稳定版门槛。GitHub 发布时应勾选 **Set as a pre-release**，并明确未签名状态。

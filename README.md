@@ -1,5 +1,7 @@
 # Context Notes Native
 
+> **公开预览版 / Public preview**：当前版本未签名，尚未完成独立干净 Windows 全流程验收；`release.json` 中 `clean_windows_tested` 与 `formal_release_ready` 均为 `false`。请先备份历史数据，再评估是否使用。
+
 > A native Windows companion for **Codex Desktop Chat** — select assistant responses, attach contextual notes, preserve exact quoted content, ask multi-turn follow-up questions in independent annotation windows, and manage persistent local SQLite conversation history.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -17,9 +19,9 @@
 
 | 分发形态 | 下载入口 | 适用人群 |
 | --- | --- | --- |
-| **Windows 标准安装包（推荐）** | [`ContextNotesNative-0.3.0-setup.exe`](https://github.com/x549d/context-notes-native/releases/latest/download/ContextNotesNative-0.3.0-setup.exe) | 绝大多数用户：向导一键安装，无需管理员权限，支持系统“应用和功能”卸载 |
-| **Windows 绿色便携包** | [`ContextNotesNative-0.3.0-portable.zip`](https://github.com/x549d/context-notes-native/releases/latest/download/ContextNotesNative-0.3.0-portable.zip) | 偏好免安装解压管理、需要自行指定目录的进阶用户 |
-| **SHA-256 校验清单** | [`SHA256SUMS`](https://github.com/x549d/context-notes-native/releases/latest/download/SHA256SUMS) | 所有用户：运行前核验下载文件完整性 |
+| **Windows 标准安装包（推荐）** | [`ContextNotesNative-0.3.0-setup.exe`](https://github.com/x549d/context-notes-native/releases/download/v0.3.0/ContextNotesNative-0.3.0-setup.exe) | 绝大多数用户：向导一键安装，无需管理员权限，支持系统“应用和功能”卸载 |
+| **Windows 绿色便携包** | [`ContextNotesNative-0.3.0-portable.zip`](https://github.com/x549d/context-notes-native/releases/download/v0.3.0/ContextNotesNative-0.3.0-portable.zip) | 偏好免安装解压管理、需要自行指定目录的进阶用户 |
+| **SHA-256 校验清单** | [`SHA256SUMS`](https://github.com/x549d/context-notes-native/releases/download/v0.3.0/SHA256SUMS) | 所有用户：运行前核验下载文件完整性 |
 
 ---
 

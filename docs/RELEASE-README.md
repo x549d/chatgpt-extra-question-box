@@ -1,5 +1,7 @@
 # Context Notes Native 0.3.0 (MIT Open Source)
 
+> **公开预览版 / Public preview**：未签名，独立干净 Windows 全流程验收待完成；`clean_windows_tested=false`、`formal_release_ready=false`。通过本机自动化检查不代表已通过稳定版发布门槛。
+
 Windows 10/11 x64 原生 Codex Desktop Chat 划词旁注追问工具。
 开源许可证：**MIT License**（见 [LICENSE](LICENSE)；第三方组件声明见 [docs/THIRD-PARTY-NOTICES.md](docs/THIRD-PARTY-NOTICES.md)）。
 
@@ -40,7 +42,7 @@ Windows 10/11 x64 原生 Codex Desktop Chat 划词旁注追问工具。
 - **AI 云端处理**：本地 Codex App Server 是官方桥接进程，选中的引用原文、提问及恢复对话所需的上下文会进入对应 AI 服务流程并发送至 OpenAI 云端处理，不承诺完全离线、零保留或不训练。
 - **本地存储与零遥测**：本地历史保存于 `%USERPROFILE%\.context-notes-native\data\history.db`（无应用层加密），无任何遥测、无 Cookie/Token 读取。详见 [PRIVACY.md](PRIVACY.md)。
 - **构建产物无本机路径**：`SelectionProbe.dll` 采用 `-p:DebugType=none` 发布，PE 调试目录不含 CodeView RSDS / `.pdb` 本机构建路径，发布包不含 `.pdb`、日志或个人数据。
-- **测试边界**：本版本已在开发机通过 Release 0 警告/0 错误构建、106 项 xUnit、80 项内置自测、13 项发布包审计、29 项标准 EXE 隔离安装/升级/回滚/卸载、19 项便携安装管理、23 项独立合成库永久删除、三浮窗并发与重启恢复及 30 分钟连续稳定性验收；**独立干净 Windows OS（虚拟机/全新主机）全流程测试当前为 `NOT TESTED`**。
+- **测试边界**：本版本已在开发机通过 Release 0 警告/0 错误构建、106 项 xUnit、80 项内置自测、14 项发布包审计、29 项标准 EXE 隔离安装/升级/回滚/卸载、19 项便携安装管理、23 项独立合成库永久删除、三浮窗并发与重启恢复及 30 分钟连续稳定性验收；**独立干净 Windows OS（虚拟机/全新主机）全流程测试当前为 `NOT TESTED`**。
 
 ## 随包文档
 
